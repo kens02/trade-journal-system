@@ -1,11 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { detectAndDecode } from '@/import/encoding';
-import {
-  DOMESTIC_HISTORY_SAMPLE_UTF8,
-  encodeUtf8,
-  encodeUtf8Bom,
-  encodeShiftJis,
-} from '@/import/__fixtures__/domesticHistory';
+import { DOMESTIC_HISTORY_SAMPLE_UTF8 } from '@/import/__fixtures__/domesticHistory';
+import { US_HISTORY_SAMPLE_UTF8 } from '@/import/__fixtures__/usHistory';
+import { encodeUtf8, encodeUtf8Bom, encodeShiftJis } from '@/import/__fixtures__/encodingHelpers';
 
 // 仕様書6.5・implement-p2.md D群: Shift-JISとUTF-8(BOM有無)の等価ファイルが同一結果になること
 describe('detectAndDecode', () => {
@@ -25,5 +22,11 @@ describe('detectAndDecode', () => {
     const result = detectAndDecode(encodeShiftJis(DOMESTIC_HISTORY_SAMPLE_UTF8));
     expect(result.encoding).toBe('shift-jis');
     expect(result.text).toBe(DOMESTIC_HISTORY_SAMPLE_UTF8);
+  });
+
+  it('米国株式CSV(ダブルクォート含む)でも3エンコーディングが等価になる', () => {
+    expect(detectAndDecode(encodeUtf8(US_HISTORY_SAMPLE_UTF8)).text).toBe(US_HISTORY_SAMPLE_UTF8);
+    expect(detectAndDecode(encodeUtf8Bom(US_HISTORY_SAMPLE_UTF8)).text).toBe(US_HISTORY_SAMPLE_UTF8);
+    expect(detectAndDecode(encodeShiftJis(US_HISTORY_SAMPLE_UTF8)).text).toBe(US_HISTORY_SAMPLE_UTF8);
   });
 });

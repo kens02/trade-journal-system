@@ -1,7 +1,5 @@
 // テスト用の匿名化ダミーデータ(実口座データは含まない。implement-p2.md 9章共通群)
-// iconv-lite はこのテストフィクスチャ生成専用。本番コードはimport/encoding.tsのTextDecoderのみを
-// 使用しランタイム依存はない(TextEncoderはUTF-8専用でShift-JISへのエンコードができないため)
-import iconv from 'iconv-lite';
+export { encodeUtf8, encodeUtf8Bom, encodeShiftJis } from './encodingHelpers';
 
 export const DOMESTIC_HISTORY_SAMPLE_UTF8 = [
   '約定履歴照会',
@@ -18,20 +16,3 @@ export const DOMESTIC_HISTORY_SAMPLE_UTF8 = [
   '2026/06/01,2026/06/03,不正行テスト,9999,東証,不明な取引種別,--, 特定 ,課税,10,1000,--,--,10000',
   '',
 ].join('\n');
-
-export function encodeUtf8(text: string): ArrayBuffer {
-  return new TextEncoder().encode(text).buffer as ArrayBuffer;
-}
-
-export function encodeUtf8Bom(text: string): ArrayBuffer {
-  const body = new TextEncoder().encode(text);
-  const withBom = new Uint8Array(3 + body.length);
-  withBom.set([0xef, 0xbb, 0xbf], 0);
-  withBom.set(body, 3);
-  return withBom.buffer;
-}
-
-export function encodeShiftJis(text: string): ArrayBuffer {
-  const encoded = iconv.encode(text, 'shift_jis');
-  return encoded.buffer.slice(encoded.byteOffset, encoded.byteOffset + encoded.byteLength) as ArrayBuffer;
-}

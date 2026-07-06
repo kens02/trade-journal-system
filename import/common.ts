@@ -3,8 +3,17 @@ import { normalizeName } from '@/domain/normalize';
 
 export type CsvFileTypeSignature = 'domestic_history' | 'us_history' | 'portfolio' | 'unknown';
 
+// 仕様書6.4 L207: 全フィールドがダブルクォート囲み。フィールド内カンマがない前提のため、
+// 単純split後に前後の"を除去するだけで足りる(RFC4180準拠のクォート内カンマ解除は不要)
+export function stripSurroundingQuotes(cell: string): string {
+  const trimmed = cell.trim();
+  return trimmed.length >= 2 && trimmed.startsWith('"') && trimmed.endsWith('"')
+    ? trimmed.slice(1, -1)
+    : trimmed;
+}
+
 function firstCell(line: string): string {
-  return (line.split(',')[0] ?? '').trim();
+  return stripSurroundingQuotes((line.split(',')[0] ?? '').trim());
 }
 
 // 仕様書6.1・implement-p2.md 5.3節: ヘッダー行の先頭セルでファイル種別を自動判定する。
@@ -32,6 +41,13 @@ export function nullIfDash(cell: string): string | null {
 export function zeroIfDash(cell: string): number {
   const trimmed = cell.trim();
   return trimmed === '' || trimmed === '--' ? 0 : Number(trimmed);
+}
+
+// 仕様書6.2/6.4: 'YYYY/MM/DD'形式の日付を'YYYY-MM-DD'へ変換する(国内・米国両CSVで共通)
+export function convertSlashDateToIso(value: string): string | null {
+  const match = /^(\d{4})\/(\d{2})\/(\d{2})$/.exec(value.trim());
+  if (!match) return null;
+  return `${match[1]}-${match[2]}-${match[3]}`;
 }
 
 // 仕様書6.2 L179: 重複判定キー(約定日+銘柄識別子+取引区分+数量+単価)。

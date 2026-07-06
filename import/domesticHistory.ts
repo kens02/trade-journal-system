@@ -1,5 +1,5 @@
 import type { AccountType, TradeSide } from '@/domain/types';
-import { findHeaderLineIndex, nullIfDash, zeroIfDash } from '@/import/common';
+import { findHeaderLineIndex, nullIfDash, zeroIfDash, convertSlashDateToIso } from '@/import/common';
 
 // 仕様書6.2: CSV1行の解釈結果。Security解決前・重複判定前の中間表現
 export interface DomesticHistoryRow {
@@ -84,12 +84,6 @@ const ACCOUNT_TYPE_MAP: Record<string, AccountType> = {
   特定: 'specific',
   旧NISA: 'old_nisa',
 };
-
-function convertSlashDateToIso(value: string): string | null {
-  const match = /^(\d{4})\/(\d{2})\/(\d{2})$/.exec(value.trim());
-  if (!match) return null;
-  return `${match[1]}-${match[2]}-${match[3]}`;
-}
 
 function buildRow(
   fields: Record<DomesticHistoryField, string>,
