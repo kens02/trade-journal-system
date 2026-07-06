@@ -30,10 +30,12 @@ function nowIso(): string {
 // ---- Security ----
 
 export async function createSecurity(
-  input: Omit<Security, 'id' | 'normalizedName' | 'createdAt'>
+  // implement-p2.md 4.1節: marketはP1由来の呼び出し元(手動入力)との互換のためoptional化し、未指定はnullとする
+  input: Omit<Security, 'id' | 'normalizedName' | 'createdAt' | 'market'> & { market?: string | null }
 ): Promise<Security> {
   const security: Security = {
     ...input,
+    market: input.market ?? null,
     id: newId(),
     normalizedName: normalizeName(input.name),
     createdAt: nowIso(),

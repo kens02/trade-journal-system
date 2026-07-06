@@ -10,6 +10,12 @@ beforeEach(async () => {
     db.rules,
     db.ruleVersions,
     db.tradeRuleLinks,
+    db.tradeMatches,
+    db.journalEntries,
+    db.tags,
+    db.journalTags,
+    db.priceSnapshots,
+    db.importBatches,
     db.appMeta,
     async () => {
       await db.securities.clear();
@@ -17,6 +23,12 @@ beforeEach(async () => {
       await db.rules.clear();
       await db.ruleVersions.clear();
       await db.tradeRuleLinks.clear();
+      await db.tradeMatches.clear();
+      await db.journalEntries.clear();
+      await db.tags.clear();
+      await db.journalTags.clear();
+      await db.priceSnapshots.clear();
+      await db.importBatches.clear();
       await db.appMeta.clear();
     }
   );
@@ -33,6 +45,25 @@ describe('Security', () => {
     const fetched = await repo.getSecurity(security.id);
     expect(fetched).toEqual(security);
     expect(fetched?.normalizedName).toBe('トヨタ自動車');
+  });
+
+  it('marketを省略するとnullで作成され(P1互換)、指定時はその値が保存される', async () => {
+    const withoutMarket = await repo.createSecurity({
+      code: '1489',
+      name: 'テスト銘柄A',
+      productType: 'jp_stock',
+      currency: 'JPY',
+    });
+    expect(withoutMarket.market).toBeNull();
+
+    const withMarket = await repo.createSecurity({
+      code: 'T',
+      name: 'AT&T',
+      productType: 'us_stock',
+      currency: 'USD',
+      market: 'NYSE',
+    });
+    expect(withMarket.market).toBe('NYSE');
   });
 });
 

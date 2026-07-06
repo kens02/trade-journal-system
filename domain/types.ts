@@ -12,6 +12,9 @@ export interface Security {
   normalizedName: string; // NFKC正規化+空白除去(照合キー。保存時に自動生成)
   productType: ProductType;
   currency: Currency;
+  // 仕様書5.1「市場区分」/ implement-p2.md 4.1節: CSV取込時に市場列(東証/NYSE/NASDAQ等)から設定。
+  // 手動入力・投信はnull可。コードあり銘柄の一意性は(code, market)の組、投信はnormalizedNameで判定する
+  market: string | null;
   createdAt: string; // ISO 8601
 }
 
@@ -28,6 +31,10 @@ export interface Trade {
   note: string; // 一言メモ(任意)
   createdAt: string;
   updatedAt: string;
+  // implement-p2.md 4.1節: 手動入力は従来通り(undefined)。CSV取込行にはbatchIdを付与しトレーサビリティを確保する
+  source?: { kind: 'manual' | 'csv'; batchId?: string };
+  // implement-p2.md 5.2節: 米国株式CSVのみ設定。|数量×単価−受渡金額|の参考値(手数料相当)
+  impliedCost?: number;
 }
 
 export interface Rule {
@@ -58,4 +65,63 @@ export interface TradeRuleLink {
   ruleVersionId: string;
   adherence: Adherence;
   createdAt: string;
+}
+
+// 仕様書5.1/5.3・implement-p2.md 4.2/6章: FIFO損益マッチング(自動+手動)
+export interface TradeMatch {
+  id: string;
+  sellTradeId: string;
+  buyTradeId: string;
+  quantity: number; // このマッチで消費した数量(整数)
+  realizedPnl: number; // 実現損益。JPY: 整数円 / USD: 整数セント
+  currency: Currency;
+  method: 'fifo_auto' | 'manual';
+  createdAt: string;
+}
+
+// 仕様書4.2・5.1・implement-p2.md 4.2/7章: ジャーナル(取引単位/日単位)
+export interface JournalEntry {
+  id: string;
+  tradeId: string | null; // nullの場合は日単位エントリ
+  entryDate: string; // 'YYYY-MM-DD'(日単位の対象日。取引単位でも約定日を複製保持)
+  body: string; // 長文(数千字想定)
+  createdAt: string;
+  updatedAt: string;
+  // 注意: 遵守評価はTradeRuleLink.adherenceに一元化し、本エンティティには持たせない(仕様書v0.5で訂正)
+}
+
+// implement-p2.md 4.2節: JournalEntryとTagの関連(join table)
+export interface JournalTag {
+  journalId: string;
+  tagId: string;
+  createdAt: string;
+}
+
+// 仕様書4.2・implement-p2.md 4.2節: 感情タグ・自由タグのマスタ
+export interface Tag {
+  id: string;
+  name: string;
+  normalizedName: string; // NFKC正規化(重複防止キー)
+  kind: 'emotion' | 'free';
+  createdAt: string;
+}
+
+// 仕様書6.3・implement-p2.md 4.2節: ポートフォリオCSV由来の現在値・保有数量(突合検証用)
+export interface PriceSnapshot {
+  id: string;
+  securityId: string;
+  snapshotAt: string; // ポートフォリオCSVの取得日(ファイル名 or ユーザー入力)
+  price: number; // 現在値。投信は1万口あたり基準価額。JPY整数 or 小数1位、USDはセント
+  quantity: number; // CSV上の保有数量(突合検証用)
+  currency: Currency;
+  batchId: string;
+}
+
+// 仕様書6.5・implement-p2.md 4.2節: CSV取込結果の履歴(取込単位のトレーサビリティ)
+export interface ImportBatch {
+  id: string;
+  fileType: 'domestic_history' | 'us_history' | 'portfolio';
+  fileName: string;
+  importedAt: string;
+  counts: { imported: number; skipped: number; error: number };
 }
