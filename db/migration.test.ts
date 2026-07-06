@@ -3,6 +3,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { TradeJournalDB } from '@/db/schema';
 
 const TEST_DB_NAME = 'trade-journal-migration-test';
+const TEST_DB_NAME_V2 = 'trade-journal-migration-test-v2';
 
 // P1時点(version 1)のスキーマをそのまま再現した最小Dexieクラス。
 // 「既にversion 1でデータが入っているブラウザ」を模し、実際のアップグレード経路を検証する
@@ -20,8 +21,30 @@ class LegacyDB extends Dexie {
   }
 }
 
+// P2-F1時点(version 2、aliases導入前)のスキーマを再現。実ブラウザで既にF1検証済みの状態を模す
+class V2OnlyDB extends Dexie {
+  constructor() {
+    super(TEST_DB_NAME_V2);
+    this.version(2).stores({
+      securities: 'id, code, normalizedName, market, [code+market]',
+      trades: 'id, tradeDate, securityId, [securityId+accountType]',
+      rules: 'id, status',
+      ruleVersions: 'id, ruleId, [ruleId+version]',
+      tradeRuleLinks: 'tradeId, ruleVersionId',
+      tradeMatches: 'id, sellTradeId, buyTradeId',
+      journalEntries: 'id, tradeId, entryDate',
+      tags: 'id, normalizedName',
+      journalTags: '[journalId+tagId], tagId, journalId',
+      priceSnapshots: 'id, securityId, [securityId+snapshotAt]',
+      importBatches: 'id, importedAt',
+      appMeta: 'key',
+    });
+  }
+}
+
 afterEach(async () => {
   await Dexie.delete(TEST_DB_NAME);
+  await Dexie.delete(TEST_DB_NAME_V2);
 });
 
 // implement-p2.md 4.1節/F1受入条件: P1データがversion 2移行後も無損失で読めること
@@ -83,6 +106,7 @@ describe('v1 -> v2 マイグレーション', () => {
     const security = await upgraded.securities.get('sec-1');
     expect(security?.code).toBe('1489');
     expect(security?.market).toBeNull(); // P1データはmarket未設定 -> nullで補完
+    expect(security?.aliases).toEqual([]); // P1データはaliases未設定 -> 空配列で補完
 
     const trade = await upgraded.trades.get('trade-1');
     expect(trade?.amount).toBe(100000);
@@ -106,6 +130,36 @@ describe('v1 -> v2 マイグレーション', () => {
     expect(await upgraded.journalTags.toArray()).toEqual([]);
     expect(await upgraded.priceSnapshots.toArray()).toEqual([]);
     expect(await upgraded.importBatches.toArray()).toEqual([]);
+
+    upgraded.close();
+  });
+});
+
+// implement-p2.md 5.1節: F1で既にversion 2まで進んだ環境(実ブラウザ検証済み)でもaliasesが無損失で補完されること
+describe('v2 -> v3 マイグレーション', () => {
+  it('F1時点(version 2)のSecurityにaliasesが空配列で補完される', async () => {
+    const v2db = new V2OnlyDB();
+    await v2db.open();
+
+    await v2db.table('securities').add({
+      id: 'sec-2',
+      code: 'T',
+      name: 'AT&T',
+      normalizedName: 'AT&T',
+      productType: 'us_stock',
+      currency: 'USD',
+      market: 'NYSE',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    v2db.close();
+
+    const upgraded = new TradeJournalDB(TEST_DB_NAME_V2);
+    await upgraded.open();
+
+    const security = await upgraded.securities.get('sec-2');
+    expect(security?.market).toBe('NYSE'); // version 2で設定済みの値は保持される
+    expect(security?.aliases).toEqual([]); // version 3アップグレードで補完される
 
     upgraded.close();
   });

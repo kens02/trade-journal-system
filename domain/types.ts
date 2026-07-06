@@ -16,6 +16,9 @@ export interface Security {
   // 手動入力・投信はnull可。コードあり銘柄の一意性は(code, market)の組、投信はnormalizedNameで判定する
   market: string | null;
   createdAt: string; // ISO 8601
+  // 仕様書6.3・implement-p2.md 5.1節: CSV取込の未照合解決で確定したエイリアス(生の銘柄名文字列)。
+  // 次回取込時、normalizedName一致に加えこの配列の正規化済み値との一致でも自動照合する
+  aliases: string[];
 }
 
 export interface Trade {

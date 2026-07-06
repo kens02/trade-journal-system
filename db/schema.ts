@@ -73,6 +73,34 @@ export class TradeJournalDB extends Dexie {
             }
           });
       });
+
+    // implement-p2.md 5.1節: Security.aliases追加。version(2)は実ブラウザで検証済みのため
+    // 書き換えず、version(3)を新規に切って既存データへのバックフィルを行う
+    this.version(3)
+      .stores({
+        securities: 'id, code, normalizedName, market, [code+market]',
+        trades: 'id, tradeDate, securityId, [securityId+accountType]',
+        rules: 'id, status',
+        ruleVersions: 'id, ruleId, [ruleId+version]',
+        tradeRuleLinks: 'tradeId, ruleVersionId',
+        tradeMatches: 'id, sellTradeId, buyTradeId',
+        journalEntries: 'id, tradeId, entryDate',
+        tags: 'id, normalizedName',
+        journalTags: '[journalId+tagId], tagId, journalId',
+        priceSnapshots: 'id, securityId, [securityId+snapshotAt]',
+        importBatches: 'id, importedAt',
+        appMeta: 'key',
+      })
+      .upgrade(async (tx) => {
+        await tx
+          .table('securities')
+          .toCollection()
+          .modify((security) => {
+            if (security.aliases === undefined) {
+              security.aliases = [];
+            }
+          });
+      });
   }
 }
 

@@ -30,12 +30,17 @@ function nowIso(): string {
 // ---- Security ----
 
 export async function createSecurity(
-  // implement-p2.md 4.1節: marketはP1由来の呼び出し元(手動入力)との互換のためoptional化し、未指定はnullとする
-  input: Omit<Security, 'id' | 'normalizedName' | 'createdAt' | 'market'> & { market?: string | null }
+  // implement-p2.md 4.1/5.1節: market/aliasesはP1由来の呼び出し元(手動入力)との互換のためoptional化し、
+  // 未指定はそれぞれnull/空配列とする
+  input: Omit<Security, 'id' | 'normalizedName' | 'createdAt' | 'market' | 'aliases'> & {
+    market?: string | null;
+    aliases?: string[];
+  }
 ): Promise<Security> {
   const security: Security = {
     ...input,
     market: input.market ?? null,
+    aliases: input.aliases ?? [],
     id: newId(),
     normalizedName: normalizeName(input.name),
     createdAt: nowIso(),
@@ -57,6 +62,14 @@ export async function updateSecurity(
 
 export async function getSecurity(id: string): Promise<Security | undefined> {
   return db.securities.get(id);
+}
+
+// 仕様書6.3・implement-p2.md 5.1節: CSV未照合銘柄の解決で確定したエイリアスを追加する(重複追加は無視)
+export async function addSecurityAlias(securityId: string, rawName: string): Promise<void> {
+  const security = await getSecurity(securityId);
+  if (!security) return;
+  if (security.aliases.includes(rawName)) return;
+  await db.securities.update(securityId, { aliases: [...security.aliases, rawName] });
 }
 
 export async function listSecurities(): Promise<Security[]> {
