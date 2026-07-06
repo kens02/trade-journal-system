@@ -1,4 +1,4 @@
-import { db } from '@/db/schema';
+import { db, type AppMetaRecord } from '@/db/schema';
 import { normalizeName } from '@/domain/normalize';
 import type {
   Security,
@@ -204,6 +204,11 @@ export async function getLatestRuleVersion(ruleId: string): Promise<RuleVersion 
   return versions.at(-1);
 }
 
+// 画面C(集計)・バックアップで全ルール横断のRuleVersionが必要になるため追加
+export async function listAllRuleVersions(): Promise<RuleVersion[]> {
+  return db.ruleVersions.toArray();
+}
+
 // ---- TradeRuleLink ----
 
 // tradeIdが主キーのためupsert(1取引につき紐付けは最大1件)
@@ -236,6 +241,11 @@ export async function listTradeRuleLinksByRuleVersion(
   return db.tradeRuleLinks.where('ruleVersionId').equals(ruleVersionId).toArray();
 }
 
+// 画面C(集計)・バックアップで全取引横断のTradeRuleLinkが必要になるため追加
+export async function listAllTradeRuleLinks(): Promise<TradeRuleLink[]> {
+  return db.tradeRuleLinks.toArray();
+}
+
 // ---- appMeta ----
 
 export async function getAppMeta<T = unknown>(key: string): Promise<T | undefined> {
@@ -245,4 +255,9 @@ export async function getAppMeta<T = unknown>(key: string): Promise<T | undefine
 
 export async function setAppMeta<T = unknown>(key: string, value: T): Promise<void> {
   await db.appMeta.put({ key, value });
+}
+
+// implement-p1.md 5章共通レイアウト: バックアップJSONに含める全appMetaレコード
+export async function listAppMeta(): Promise<AppMetaRecord[]> {
+  return db.appMeta.toArray();
 }
