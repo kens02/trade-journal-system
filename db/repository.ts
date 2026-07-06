@@ -7,6 +7,7 @@ import type {
   RuleVersion,
   TradeRuleLink,
   Adherence,
+  ImportBatch,
 } from '@/domain/types';
 
 // implement-p1.md 4.4節: 書き込みはすべて本ファイル経由で行う(UIから直接Dexieを触らない)
@@ -275,4 +276,23 @@ export async function setAppMeta<T = unknown>(key: string, value: T): Promise<vo
 // implement-p1.md 5章共通レイアウト: バックアップJSONに含める全appMetaレコード
 export async function listAppMeta(): Promise<AppMetaRecord[]> {
   return db.appMeta.toArray();
+}
+
+// ---- ImportBatch ----
+
+// 仕様書6.5・implement-p2.md 5.1節: CSV取込結果を取込単位で永続化する
+export async function createImportBatch(
+  input: Omit<ImportBatch, 'id' | 'importedAt'>
+): Promise<ImportBatch> {
+  const batch: ImportBatch = {
+    ...input,
+    id: newId(),
+    importedAt: nowIso(),
+  };
+  await db.importBatches.add(batch);
+  return batch;
+}
+
+export async function listImportBatches(): Promise<ImportBatch[]> {
+  return db.importBatches.toArray();
 }

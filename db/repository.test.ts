@@ -244,3 +244,38 @@ describe('appMeta', () => {
     expect(await repo.getAppMeta<boolean>('storagePersisted')).toBe(true);
   });
 });
+
+describe('Security alias', () => {
+  it('addSecurityAliasでaliasesに追加され、同じ値の再追加は無視される', async () => {
+    const security = await repo.createSecurity({
+      code: null,
+      name: 'テストファンド',
+      productType: 'fund',
+      currency: 'JPY',
+    });
+    expect(security.aliases).toEqual([]);
+
+    await repo.addSecurityAlias(security.id, 'テストファンド(略称)');
+    await repo.addSecurityAlias(security.id, 'テストファンド(略称)'); // 重複追加は無視
+
+    const updated = await repo.getSecurity(security.id);
+    expect(updated?.aliases).toEqual(['テストファンド(略称)']);
+  });
+});
+
+describe('ImportBatch', () => {
+  it('createImportBatch/listImportBatchesで取込結果を作成・一覧取得できる', async () => {
+    const batch = await repo.createImportBatch({
+      fileType: 'domestic_history',
+      fileName: 'SaveFile_test.csv',
+      counts: { imported: 5, skipped: 1, error: 0 },
+    });
+    expect(batch.id).toBeDefined();
+    expect(batch.importedAt).toBeDefined();
+
+    const list = await repo.listImportBatches();
+    expect(list).toHaveLength(1);
+    expect(list[0].fileName).toBe('SaveFile_test.csv');
+    expect(list[0].counts).toEqual({ imported: 5, skipped: 1, error: 0 });
+  });
+});
