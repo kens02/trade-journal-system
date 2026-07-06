@@ -62,6 +62,9 @@ export function Header() {
           <Link href="/summary" className="text-blue-600 underline">
             集計
           </Link>
+          <Link href="/import" className="text-blue-600 underline">
+            インポート
+          </Link>
         </nav>
       </div>
       <button
