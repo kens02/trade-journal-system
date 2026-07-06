@@ -8,20 +8,21 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "dexie": "latest",
     "next": "latest",
     "react": "latest",
-    "react-dom": "latest",
-    "dexie": "latest"
+    "react-dom": "latest"
   },
   "devDependencies": {
-    "typescript": "latest",
+    "@tailwindcss/postcss": "latest",
     "@types/node": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
-    "tailwindcss": "latest",
-    "@tailwindcss/postcss": "latest",
-    "vitest": "latest",
     "fake-indexeddb": "latest",
-    "serve": "latest"
+    "iconv-lite": "^0.7.3",
+    "serve": "latest",
+    "tailwindcss": "latest",
+    "typescript": "latest",
+    "vitest": "latest"
   }
 }

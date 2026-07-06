@@ -1,0 +1,37 @@
+// テスト用の匿名化ダミーデータ(実口座データは含まない。implement-p2.md 9章共通群)
+// iconv-lite はこのテストフィクスチャ生成専用。本番コードはimport/encoding.tsのTextDecoderのみを
+// 使用しランタイム依存はない(TextEncoderはUTF-8専用でShift-JISへのエンコードができないため)
+import iconv from 'iconv-lite';
+
+export const DOMESTIC_HISTORY_SAMPLE_UTF8 = [
+  '約定履歴照会',
+  '抽出条件:2026/01/01-2026/07/06',
+  '',
+  '約定日,受渡日,銘柄,銘柄コード,市場,取引,期限,預り,課税,約定数量,約定単価,手数料/諸経費等,税額,受渡金額/決済損益',
+  '2026/01/15,2026/01/17,テスト商事,1489,東証,株式現物買,--, 特定 ,課税,100,2180.5,--,--,218050',
+  '2026/01/20,2026/01/22,テスト商事,1489,東証,株式現物売,--, 特定 ,課税,100,2200.0,--,--,220000',
+  '2026/02/01,2026/02/03,テストファンド,,--,投信金額買付,--, NISA(つ) ,非課税,10000,12345,--,--,123450',
+  '2026/03/01,2026/03/03,テストファンド,,--,分配金再投資,--, NISA(つ) ,非課税,500,12400,--,--,620',
+  '2026/04/01,2026/04/03,テスト成長株,314A,東証(外),株式現物買,--, NISA(成) ,非課税,10,5000.0,--,--,50000',
+  '2026/05/01,2026/05/03,テスト旧株,7267,東証,株式現物買,--, 旧NISA ,課税,20,3000.0,--,--,60000',
+  '2026/01/15,2026/01/17,テスト商事,1489,東証,株式現物買,--, 特定 ,課税,100,2180.5,--,--,218050',
+  '2026/06/01,2026/06/03,不正行テスト,9999,東証,不明な取引種別,--, 特定 ,課税,10,1000,--,--,10000',
+  '',
+].join('\n');
+
+export function encodeUtf8(text: string): ArrayBuffer {
+  return new TextEncoder().encode(text).buffer as ArrayBuffer;
+}
+
+export function encodeUtf8Bom(text: string): ArrayBuffer {
+  const body = new TextEncoder().encode(text);
+  const withBom = new Uint8Array(3 + body.length);
+  withBom.set([0xef, 0xbb, 0xbf], 0);
+  withBom.set(body, 3);
+  return withBom.buffer;
+}
+
+export function encodeShiftJis(text: string): ArrayBuffer {
+  const encoded = iconv.encode(text, 'shift_jis');
+  return encoded.buffer.slice(encoded.byteOffset, encoded.byteOffset + encoded.byteLength) as ArrayBuffer;
+}
