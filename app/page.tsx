@@ -9,8 +9,13 @@ export default function Home() {
           取引を記録する →
         </Link>
       </p>
+      <p>
+        <Link href="/rules" className="text-blue-600 underline">
+          ルールを管理する →
+        </Link>
+      </p>
       <p className="text-sm text-gray-500">
-        ルール管理・簡易集計画面は未実装です(今後のフェーズで追加予定)。
+        簡易集計画面は未実装です(今後のフェーズで追加予定)。
       </p>
     </main>
   );
