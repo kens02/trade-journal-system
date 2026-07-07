@@ -279,3 +279,22 @@ describe('ImportBatch', () => {
     expect(list[0].counts).toEqual({ imported: 5, skipped: 1, error: 0 });
   });
 });
+
+describe('PriceSnapshot', () => {
+  it('createPriceSnapshot/listPriceSnapshotsで作成・一覧取得できる', async () => {
+    const snapshot = await repo.createPriceSnapshot({
+      securityId: 'sec-1',
+      snapshotAt: '2026-07-06',
+      price: 2200,
+      quantity: 100,
+      currency: 'JPY',
+      batchId: 'batch-1',
+    });
+    expect(snapshot.id).toBeDefined();
+
+    const list = await repo.listPriceSnapshots();
+    expect(list).toHaveLength(1);
+    expect(list[0].securityId).toBe('sec-1');
+    expect(list[0].quantity).toBe(100);
+  });
+});

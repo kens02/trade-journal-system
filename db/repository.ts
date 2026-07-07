@@ -8,6 +8,7 @@ import type {
   TradeRuleLink,
   Adherence,
   ImportBatch,
+  PriceSnapshot,
 } from '@/domain/types';
 
 // implement-p1.md 4.4節: 書き込みはすべて本ファイル経由で行う(UIから直接Dexieを触らない)
@@ -295,4 +296,17 @@ export async function createImportBatch(
 
 export async function listImportBatches(): Promise<ImportBatch[]> {
   return db.importBatches.toArray();
+}
+
+// ---- PriceSnapshot ----
+
+// 仕様書6.3・implement-p2.md 4.2節: ポートフォリオCSV取込時の明細行をPriceSnapshotとして永続化する
+export async function createPriceSnapshot(input: Omit<PriceSnapshot, 'id'>): Promise<PriceSnapshot> {
+  const snapshot: PriceSnapshot = { ...input, id: newId() };
+  await db.priceSnapshots.add(snapshot);
+  return snapshot;
+}
+
+export async function listPriceSnapshots(): Promise<PriceSnapshot[]> {
+  return db.priceSnapshots.toArray();
 }
