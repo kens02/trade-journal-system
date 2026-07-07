@@ -10,8 +10,8 @@ const ACCOUNT_LABEL: Record<string, string> = {
 };
 
 const FIELD_LABEL: Record<ReconciliationWarning['field'], string> = {
-  quantity: '数量',
-  pnl: '損益',
+  evaluationAmount: '評価額',
+  pnl: '含み損益',
 };
 
 export interface HoldingDiscrepancyDisplay {

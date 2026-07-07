@@ -64,14 +64,15 @@ describe('parsePortfolioCsv', () => {
     expect(stockWarnings).toHaveLength(0);
   });
 
-  it('合計ブロックと明細再計算値が不一致のセクションは数量・損益それぞれ警告が出る', () => {
+  it('合計ブロックと明細再計算値が不一致のセクションは評価額・損益それぞれ警告が出る', () => {
     const result = parsePortfolioCsv(PORTFOLIO_SAMPLE_UTF8);
     const fundWarnings = result.reconciliationWarnings.filter((w) => w.sectionTitle.startsWith('投資信託'));
     expect(fundWarnings).toHaveLength(2);
 
-    const quantityWarning = fundWarnings.find((w) => w.field === 'quantity')!;
-    expect(quantityWarning.computed).toBe(15500);
-    expect(quantityWarning.expected).toBe(16000);
+    // 投信の評価額は数量×現在値÷10000(仕様書6.2の基準価額換算): 10500*12400/10000 + 5000*10100/10000 = 18070
+    const evaluationWarning = fundWarnings.find((w) => w.field === 'evaluationAmount')!;
+    expect(evaluationWarning.computed).toBeCloseTo(18070);
+    expect(evaluationWarning.expected).toBe(99999);
 
     const pnlWarning = fundWarnings.find((w) => w.field === 'pnl')!;
     expect(pnlWarning.computed).toBeCloseTo(107.75);

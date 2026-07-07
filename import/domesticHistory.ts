@@ -1,5 +1,11 @@
 import type { AccountType, TradeSide } from '@/domain/types';
-import { findHeaderLineIndex, nullIfDash, zeroIfDash, convertSlashDateToIso } from '@/import/common';
+import {
+  findHeaderLineIndex,
+  nullIfDash,
+  zeroIfDash,
+  convertSlashDateToIso,
+  stripSurroundingQuotes,
+} from '@/import/common';
 
 // 仕様書6.2: CSV1行の解釈結果。Security解決前・重複判定前の中間表現
 export interface DomesticHistoryRow {
@@ -47,10 +53,10 @@ type DomesticHistoryField =
   | 'tax'
   | 'amount';
 
-// 仕様書6.5: 列マッピング定義の外部化。SBI側のフォーマット変更時はこの配列のみ修正すればよい
+// 仕様書6.5: 列マッピング定義の外部化。SBI側のフォーマット変更時はこの配列のみ修正すればよい。
+// 実ファイル確認済み: 受渡日は仕様書の表記載順(2列目)ではなく、受渡金額の直前(13列目)に実在する
 const DOMESTIC_HISTORY_COLUMNS: { header: string; field: DomesticHistoryField }[] = [
   { header: '約定日', field: 'tradeDate' },
-  { header: '受渡日', field: 'settlementDate' },
   { header: '銘柄', field: 'rawSecurityName' },
   { header: '銘柄コード', field: 'securityCode' },
   { header: '市場', field: 'market' },
@@ -62,6 +68,7 @@ const DOMESTIC_HISTORY_COLUMNS: { header: string; field: DomesticHistoryField }[
   { header: '約定単価', field: 'price' },
   { header: '手数料/諸経費等', field: 'fee' },
   { header: '税額', field: 'tax' },
+  { header: '受渡日', field: 'settlementDate' },
   { header: '受渡金額/決済損益', field: 'amount' },
 ];
 
@@ -162,7 +169,7 @@ export function parseDomesticHistoryCsv(text: string): DomesticHistoryParseResul
     };
   }
 
-  const headerCells = lines[headerIndex].split(',').map((cell) => cell.trim());
+  const headerCells = lines[headerIndex].split(',').map((cell) => stripSurroundingQuotes(cell));
   const expectedHeaders = DOMESTIC_HISTORY_COLUMNS.map((c) => c.header);
   const headerMatches =
     headerCells.length === expectedHeaders.length &&
@@ -187,7 +194,7 @@ export function parseDomesticHistoryCsv(text: string): DomesticHistoryParseResul
     const line = lines[i];
     if (line.trim() === '') continue;
     const rowNumber = i + 1;
-    const cells = line.split(',');
+    const cells = line.split(',').map((cell) => stripSurroundingQuotes(cell));
     if (cells.length !== DOMESTIC_HISTORY_COLUMNS.length) {
       errors.push({ kind: 'row_error', rowNumber, message: `列数が一致しません(${cells.length}列)` });
       continue;
