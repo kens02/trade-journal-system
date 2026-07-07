@@ -1,9 +1,17 @@
 'use client';
 
 import { useState } from 'react';
-import type { ProductType, Security } from '@/domain/types';
-import { listSecurities, createSecurity, addSecurityAlias, listTrades, createTrade, createImportBatch } from '@/db/repository';
-import { parseDomesticHistoryCsv, type DomesticHistoryRow, type DomesticHistoryParseError } from '@/import/domesticHistory';
+import type { ProductType, Security, Currency, TradeSide, AccountType } from '@/domain/types';
+import {
+  listSecurities,
+  createSecurity,
+  addSecurityAlias,
+  listTrades,
+  createTrade,
+  createImportBatch,
+} from '@/db/repository';
+import { parseDomesticHistoryCsv, type DomesticHistoryRow } from '@/import/domesticHistory';
+import { parseUsHistoryCsv, type UsHistoryRow } from '@/import/usHistory';
 import { duplicateKey, matchSecurity } from '@/import/common';
 import { FileDropzone, type FileReadResult } from './FileDropzone';
 import { ImportPreviewTable } from './ImportPreviewTable';
@@ -11,19 +19,84 @@ import { UnmatchedSecurityResolver, type UnmatchedGroup } from './UnmatchedSecur
 import { DuplicateResolver, type CollisionInfo } from './DuplicateResolver';
 import { ImportSummary } from './ImportSummary';
 
-interface ResolvedRow extends DomesticHistoryRow {
+// implement-p2.md F3: DomesticHistoryRow/UsHistoryRowの共通部分を取引取込ウィザードで
+// 一元的に扱うための橋渡し型。ファイル種別ごとの差異(投信再投資フラグ/実効コスト等)は
+// 吸収し、以降のウィザードロジック(照合・重複判定・コミット)を共通化する
+export interface TradeImportableRow {
+  rowNumber: number;
+  tradeDate: string;
+  rawSecurityName: string;
+  securityCode: string | null;
+  market: string | null;
+  side: TradeSide;
+  accountType: AccountType;
+  quantity: number;
+  price: number;
+  amount: number;
+  currency: Currency;
+  impliedCost?: number;
+  note: string;
+  defaultProductType: ProductType;
+}
+
+function domesticRowToImportable(row: DomesticHistoryRow): TradeImportableRow {
+  return {
+    rowNumber: row.rowNumber,
+    tradeDate: row.tradeDate,
+    rawSecurityName: row.rawSecurityName,
+    securityCode: row.securityCode,
+    market: row.market,
+    side: row.side,
+    accountType: row.accountType,
+    quantity: row.quantity,
+    price: row.price,
+    amount: row.amount,
+    currency: 'JPY',
+    note: row.isDistributionReinvestment ? '分配金再投資(CSV取込)' : '',
+    defaultProductType: row.productKind === 'fund' ? 'fund' : 'jp_stock',
+  };
+}
+
+function usRowToImportable(row: UsHistoryRow): TradeImportableRow {
+  return {
+    rowNumber: row.rowNumber,
+    tradeDate: row.tradeDate,
+    rawSecurityName: row.rawSecurityName,
+    securityCode: row.ticker,
+    market: row.market,
+    side: row.side,
+    accountType: row.accountType,
+    quantity: row.quantity,
+    price: row.price,
+    amount: row.amount,
+    currency: 'USD',
+    impliedCost: row.impliedCost,
+    note: '',
+    defaultProductType: 'us_stock',
+  };
+}
+
+interface ParseErrorLike {
+  rowNumber?: number;
+  message: string;
+}
+
+interface ResolvedRow extends TradeImportableRow {
   resolvedSecurityId: string;
 }
+
+type FileType = 'domestic_history' | 'us_history';
 
 type Step =
   | { kind: 'select' }
   | { kind: 'error'; message: string }
-  | { kind: 'preview'; fileName: string; rows: DomesticHistoryRow[]; parseErrors: DomesticHistoryParseError[] }
+  | { kind: 'preview'; fileType: FileType; fileName: string; rows: TradeImportableRow[]; parseErrors: ParseErrorLike[] }
   | {
       kind: 'resolve_securities';
+      fileType: FileType;
       fileName: string;
-      rows: DomesticHistoryRow[];
-      parseErrors: DomesticHistoryParseError[];
+      rows: TradeImportableRow[];
+      parseErrors: ParseErrorLike[];
       securities: Security[];
       matchedByRowNumber: Map<number, string>;
       groups: UnmatchedGroup[];
@@ -31,9 +104,10 @@ type Step =
     }
   | {
       kind: 'resolve_duplicates';
+      fileType: FileType;
       fileName: string;
       resolvedRows: ResolvedRow[];
-      parseErrors: DomesticHistoryParseError[];
+      parseErrors: ParseErrorLike[];
       collisions: CollisionInfo[];
       decisions: Map<number, 'keep' | 'skip'>;
     }
@@ -46,28 +120,55 @@ type Step =
       errorRows: { rowNumber: number; reason: string }[];
     };
 
-function groupKeyOf(row: DomesticHistoryRow): string {
+function groupKeyOf(row: TradeImportableRow): string {
   return `${row.rawSecurityName}::${row.securityCode ?? ''}::${row.market ?? ''}`;
 }
 
-export function ImportClient() {
+// implement-p2.md 5.3節画面D: 取引を生成する取込(約定履歴照会CSV・米国株式約定履歴CSV)のウィザード
+export function TradeImportClient() {
   const [step, setStep] = useState<Step>({ kind: 'select' });
 
   function reset() {
     setStep({ kind: 'select' });
   }
 
-  function handleFileRead({ fileName, text }: FileReadResult) {
-    const result = parseDomesticHistoryCsv(text);
+  function handleFileRead({ fileName, text, fileType }: FileReadResult) {
+    if (fileType === 'domestic_history') {
+      const result = parseDomesticHistoryCsv(text);
+      if (!result.ok) {
+        setStep({ kind: 'error', message: result.errors[0]?.message ?? '不明なエラーです' });
+        return;
+      }
+      setStep({
+        kind: 'preview',
+        fileType,
+        fileName,
+        rows: result.rows.map(domesticRowToImportable),
+        parseErrors: result.errors,
+      });
+      return;
+    }
+
+    const result = parseUsHistoryCsv(text);
     if (!result.ok) {
       setStep({ kind: 'error', message: result.errors[0]?.message ?? '不明なエラーです' });
       return;
     }
-    setStep({ kind: 'preview', fileName, rows: result.rows, parseErrors: result.errors });
+    setStep({
+      kind: 'preview',
+      fileType: 'us_history',
+      fileName,
+      rows: result.rows.map(usRowToImportable),
+      parseErrors: result.errors,
+    });
   }
 
-  // 画面プレビュー確認後、Securityの照合を行い、未照合があれば解決ステップへ、なければ重複判定へ進む
-  async function proceedFromPreview(fileName: string, rows: DomesticHistoryRow[], parseErrors: DomesticHistoryParseError[]) {
+  async function proceedFromPreview(
+    fileType: FileType,
+    fileName: string,
+    rows: TradeImportableRow[],
+    parseErrors: ParseErrorLike[]
+  ) {
     const securities = await listSecurities();
     const matchedByRowNumber = new Map<number, string>();
     const unmatchedGroupsByKey = new Map<string, UnmatchedGroup>();
@@ -88,20 +189,22 @@ export function ImportClient() {
           rawSecurityName: row.rawSecurityName,
           securityCode: row.securityCode,
           market: row.market,
-          productKind: row.productKind,
+          productKind: row.defaultProductType === 'fund' ? 'fund' : 'stock_or_etf',
           rowCount: 1,
+          defaultProductType: row.defaultProductType,
         });
       }
     }
 
     const groups = Array.from(unmatchedGroupsByKey.values());
     if (groups.length === 0) {
-      await proceedToDuplicateCheck(fileName, rows, parseErrors, matchedByRowNumber, new Map());
+      await proceedToDuplicateCheck(fileType, fileName, rows, parseErrors, matchedByRowNumber, new Map());
       return;
     }
 
     setStep({
       kind: 'resolve_securities',
+      fileType,
       fileName,
       rows,
       parseErrors,
@@ -113,9 +216,10 @@ export function ImportClient() {
   }
 
   async function handleResolveExisting(
+    fileType: FileType,
     fileName: string,
-    rows: DomesticHistoryRow[],
-    parseErrors: DomesticHistoryParseError[],
+    rows: TradeImportableRow[],
+    parseErrors: ParseErrorLike[],
     securities: Security[],
     matchedByRowNumber: Map<number, string>,
     groups: UnmatchedGroup[],
@@ -130,6 +234,7 @@ export function ImportClient() {
     const nextResolutions = new Map(resolutions);
     nextResolutions.set(group.key, securityId);
     await advanceOrStayOnSecurityResolution(
+      fileType,
       fileName,
       rows,
       parseErrors,
@@ -141,9 +246,10 @@ export function ImportClient() {
   }
 
   async function handleResolveNew(
+    fileType: FileType,
     fileName: string,
-    rows: DomesticHistoryRow[],
-    parseErrors: DomesticHistoryParseError[],
+    rows: TradeImportableRow[],
+    parseErrors: ParseErrorLike[],
     securities: Security[],
     matchedByRowNumber: Map<number, string>,
     groups: UnmatchedGroup[],
@@ -155,12 +261,13 @@ export function ImportClient() {
       name: draft.name,
       code: draft.code,
       productType: draft.productType,
-      currency: 'JPY', // 国内履歴CSVのみ(F2スコープ)のため常にJPY
+      currency: fileType === 'us_history' ? 'USD' : 'JPY',
       market: group.market,
     });
     const nextResolutions = new Map(resolutions);
     nextResolutions.set(group.key, created.id);
     await advanceOrStayOnSecurityResolution(
+      fileType,
       fileName,
       rows,
       parseErrors,
@@ -172,9 +279,10 @@ export function ImportClient() {
   }
 
   async function advanceOrStayOnSecurityResolution(
+    fileType: FileType,
     fileName: string,
-    rows: DomesticHistoryRow[],
-    parseErrors: DomesticHistoryParseError[],
+    rows: TradeImportableRow[],
+    parseErrors: ParseErrorLike[],
     securities: Security[],
     matchedByRowNumber: Map<number, string>,
     groups: UnmatchedGroup[],
@@ -183,6 +291,7 @@ export function ImportClient() {
     if (resolutions.size < groups.length) {
       setStep({
         kind: 'resolve_securities',
+        fileType,
         fileName,
         rows,
         parseErrors,
@@ -193,14 +302,15 @@ export function ImportClient() {
       });
       return;
     }
-    await proceedToDuplicateCheck(fileName, rows, parseErrors, matchedByRowNumber, resolutions);
+    await proceedToDuplicateCheck(fileType, fileName, rows, parseErrors, matchedByRowNumber, resolutions);
   }
 
-  // 全Security解決後、既存Tradeとの重複キー突合を行う(仕様書6.2 L179)
+  // 全Security解決後、既存Tradeとの重複キー突合を行う(仕様書6.2/6.4)
   async function proceedToDuplicateCheck(
+    fileType: FileType,
     fileName: string,
-    rows: DomesticHistoryRow[],
-    parseErrors: DomesticHistoryParseError[],
+    rows: TradeImportableRow[],
+    parseErrors: ParseErrorLike[],
     matchedByRowNumber: Map<number, string>,
     resolutions: Map<string, string>
   ) {
@@ -241,17 +351,18 @@ export function ImportClient() {
     }
 
     if (collisions.length === 0) {
-      await commitImport(fileName, resolvedRows, parseErrors, new Map());
+      await commitImport(fileType, fileName, resolvedRows, parseErrors, new Map());
       return;
     }
 
-    setStep({ kind: 'resolve_duplicates', fileName, resolvedRows, parseErrors, collisions, decisions: new Map() });
+    setStep({ kind: 'resolve_duplicates', fileType, fileName, resolvedRows, parseErrors, collisions, decisions: new Map() });
   }
 
   async function commitImport(
+    fileType: FileType,
     fileName: string,
     resolvedRows: ResolvedRow[],
-    parseErrors: DomesticHistoryParseError[],
+    parseErrors: ParseErrorLike[],
     decisions: Map<number, 'keep' | 'skip'>
   ) {
     setStep({ kind: 'committing' });
@@ -260,7 +371,7 @@ export function ImportClient() {
     const skippedCount = resolvedRows.length - acceptedRows.length;
 
     const batch = await createImportBatch({
-      fileType: 'domestic_history',
+      fileType,
       fileName,
       counts: { imported: acceptedRows.length, skipped: skippedCount, error: parseErrors.length },
     });
@@ -274,8 +385,9 @@ export function ImportClient() {
         quantity: row.quantity,
         price: row.price,
         amount: row.amount,
-        currency: 'JPY',
-        note: row.isDistributionReinvestment ? '分配金再投資(CSV取込)' : '',
+        currency: row.currency,
+        note: row.note,
+        impliedCost: row.impliedCost,
         source: { kind: 'csv', batchId: batch.id },
       });
     }
@@ -292,6 +404,8 @@ export function ImportClient() {
   if (step.kind === 'select') {
     return (
       <FileDropzone
+        label="約定履歴照会CSV(SaveFile_*.csv)または米国株式約定履歴CSV(PaymentRecords_*.csv)を選択"
+        acceptedTypes={['domestic_history', 'us_history']}
         onFileRead={handleFileRead}
         onUnsupportedFile={(message) => setStep({ kind: 'error', message })}
       />
@@ -317,7 +431,7 @@ export function ImportClient() {
           <button
             type="button"
             className="bg-blue-600 text-white px-4 py-1 rounded"
-            onClick={() => void proceedFromPreview(step.fileName, step.rows, step.parseErrors)}
+            onClick={() => void proceedFromPreview(step.fileType, step.fileName, step.rows, step.parseErrors)}
           >
             次へ
           </button>
@@ -339,6 +453,7 @@ export function ImportClient() {
           resolutions={step.resolutions}
           onResolveExisting={(group, securityId) =>
             void handleResolveExisting(
+              step.fileType,
               step.fileName,
               step.rows,
               step.parseErrors,
@@ -352,6 +467,7 @@ export function ImportClient() {
           }
           onResolveNew={(group, draft) =>
             void handleResolveNew(
+              step.fileType,
               step.fileName,
               step.rows,
               step.parseErrors,
@@ -370,6 +486,7 @@ export function ImportClient() {
           disabled={!allResolved}
           onClick={() =>
             void proceedToDuplicateCheck(
+              step.fileType,
               step.fileName,
               step.rows,
               step.parseErrors,
@@ -406,7 +523,7 @@ export function ImportClient() {
           type="button"
           className="bg-blue-600 text-white px-4 py-1 rounded disabled:opacity-50"
           disabled={!allDecided}
-          onClick={() => void commitImport(step.fileName, step.resolvedRows, step.parseErrors, step.decisions)}
+          onClick={() => void commitImport(step.fileType, step.fileName, step.resolvedRows, step.parseErrors, step.decisions)}
         >
           取込実行
         </button>

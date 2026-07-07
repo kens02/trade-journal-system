@@ -1,7 +1,22 @@
 import { describe, it, expect } from 'vitest';
-import { parsePortfolioCsv, computeHoldingDiscrepancies } from '@/import/portfolio';
+import { parsePortfolioCsv, computeHoldingDiscrepancies, matchPortfolioSecurity } from '@/import/portfolio';
 import { sniffFileType } from '@/import/common';
 import { PORTFOLIO_SAMPLE_UTF8 } from '@/import/__fixtures__/portfolio';
+import type { Security } from '@/domain/types';
+
+function makeSecurity(overrides: Partial<Security> & Pick<Security, 'id'>): Security {
+  return {
+    code: null,
+    name: 'テスト',
+    normalizedName: 'テスト',
+    productType: 'jp_stock',
+    currency: 'JPY',
+    market: null,
+    aliases: [],
+    createdAt: '2026-01-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
 
 describe('parsePortfolioCsv', () => {
   it('セクションタイトルから商品種別・口座区分を解釈し、明細行のみ抽出する', () => {
@@ -73,6 +88,29 @@ describe('parsePortfolioCsv', () => {
 describe('sniffFileType (portfolio)', () => {
   it('ポートフォリオ一覧を含むファイルはportfolioと判定する', () => {
     expect(sniffFileType(PORTFOLIO_SAMPLE_UTF8)).toBe('portfolio');
+  });
+});
+
+describe('matchPortfolioSecurity', () => {
+  it('コードがあればコードのみで一致させる(市場は問わない)', () => {
+    const securities = [makeSecurity({ id: 'sec-1', code: '1489', market: '東証' })];
+    const matched = matchPortfolioSecurity({ securityCode: '1489', rawSecurityName: 'テスト商事' }, securities);
+    expect(matched?.id).toBe('sec-1');
+  });
+
+  it('コードがない場合はnormalizedNameまたはエイリアスで一致させる', () => {
+    const securities = [
+      makeSecurity({ id: 'sec-2', code: null, name: 'テストファンド', normalizedName: 'テストファンド', aliases: ['テストF'] }),
+    ];
+    expect(
+      matchPortfolioSecurity({ securityCode: null, rawSecurityName: 'テストファンド' }, securities)?.id
+    ).toBe('sec-2');
+    expect(matchPortfolioSecurity({ securityCode: null, rawSecurityName: 'テストF' }, securities)?.id).toBe(
+      'sec-2'
+    );
+    expect(
+      matchPortfolioSecurity({ securityCode: null, rawSecurityName: '未登録ファンド' }, securities)
+    ).toBeUndefined();
   });
 });
 

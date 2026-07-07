@@ -1,10 +1,10 @@
 'use client';
 
-import type { DomesticHistoryRow } from '@/import/domesticHistory';
-import { formatJPY } from '@/domain/money';
+import type { TradeImportableRow } from './TradeImportClient';
+import { formatJPY, formatUSD } from '@/domain/money';
 
 export interface CollisionInfo {
-  row: DomesticHistoryRow;
+  row: TradeImportableRow;
   existingCount: number; // 同一キーで既に存在する取引件数
 }
 
@@ -55,7 +55,7 @@ export function DuplicateResolver({ collisions, decisions, onDecide, onSkipAll }
                 <td className="p-2">{row.side === 'buy' ? '買' : '売'}</td>
                 <td className="p-2">{row.quantity}</td>
                 <td className="p-2">{row.price}</td>
-                <td className="p-2">{formatJPY(row.amount)}</td>
+                <td className="p-2">{row.currency === 'JPY' ? formatJPY(row.amount) : formatUSD(row.amount)}</td>
                 <td className="p-2">{existingCount}</td>
                 <td className="p-2 space-x-2 whitespace-nowrap">
                   <label className="text-xs">

@@ -11,6 +11,8 @@ export interface UnmatchedGroup {
   market: string | null;
   productKind: 'fund' | 'stock_or_etf';
   rowCount: number;
+  // implement-p2.md F3: どのCSV種別(国内/米国)由来かにより新規登録時の既定商品種別が変わる
+  defaultProductType: ProductType;
 }
 
 interface Props {
@@ -74,7 +76,7 @@ function GroupResolver({
   const [name, setName] = useState(group.rawSecurityName);
   const [code, setCode] = useState(group.securityCode ?? '');
   const [productType, setProductType] = useState<ProductType>(
-    group.productKind === 'fund' ? 'fund' : 'jp_stock'
+    group.productKind === 'fund' ? 'fund' : group.defaultProductType
   );
 
   const matches = useMemo(() => {
@@ -166,6 +168,7 @@ function GroupResolver({
               onChange={(e) => setProductType(e.target.value as ProductType)}
             >
               <option value="jp_stock">国内株式</option>
+              <option value="us_stock">米国株式</option>
               <option value="etf">ETF</option>
               <option value="fund">投資信託</option>
             </select>

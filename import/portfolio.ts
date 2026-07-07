@@ -1,5 +1,6 @@
-import type { AccountType } from '@/domain/types';
+import type { AccountType, Security } from '@/domain/types';
 import { convertSlashDateToIso } from '@/import/common';
+import { normalizeName } from '@/domain/normalize';
 import { holdingKey } from '@/domain/holdings';
 
 // 仕様書6.3: ポートフォリオCSV明細1行の解釈結果。Security解決前の中間表現
@@ -250,6 +251,22 @@ export function parsePortfolioCsv(text: string): PortfolioParseResult {
   }
 
   return { ok: true, rows, errors, reconciliationWarnings };
+}
+
+// 仕様書6.3: ポートフォリオCSVの銘柄(コード)列には市場情報がないため、コードのみで一致させる
+// (国内株の運用上、同一コードが複数市場に存在するケースは想定しない)。投信はnormalizedName
+// (エイリアス含む)一致で照合する
+export function matchPortfolioSecurity(
+  row: { securityCode: string | null; rawSecurityName: string },
+  securities: Security[]
+): Security | undefined {
+  if (row.securityCode !== null) {
+    return securities.find((s) => s.code === row.securityCode);
+  }
+  const key = normalizeName(row.rawSecurityName);
+  return securities.find(
+    (s) => s.normalizedName === key || s.aliases.some((alias) => normalizeName(alias) === key)
+  );
 }
 
 // 仕様書6.3 L203: 取引記録由来の保有数量とCSV保有数量の差異レポート

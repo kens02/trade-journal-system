@@ -1,7 +1,7 @@
 'use client';
 
-import type { DomesticHistoryRow, DomesticHistoryParseError } from '@/import/domesticHistory';
-import { formatJPY } from '@/domain/money';
+import type { TradeImportableRow } from './TradeImportClient';
+import { formatJPY, formatUSD } from '@/domain/money';
 
 const ACCOUNT_LABEL: Record<string, string> = {
   specific: '特定',
@@ -11,8 +11,8 @@ const ACCOUNT_LABEL: Record<string, string> = {
 };
 
 interface Props {
-  rows: DomesticHistoryRow[];
-  errors: DomesticHistoryParseError[];
+  rows: TradeImportableRow[];
+  errors: { rowNumber?: number; message: string }[];
 }
 
 // implement-p2.md 5.3節画面D: 先頭20行のプレビュー表示
@@ -59,7 +59,9 @@ export function ImportPreviewTable({ rows, errors }: Props) {
               <td className="p-2">{ACCOUNT_LABEL[row.accountType]}</td>
               <td className="p-2">{row.quantity}</td>
               <td className="p-2">{row.price}</td>
-              <td className="p-2">{formatJPY(row.amount)}</td>
+              <td className="p-2">
+                {row.currency === 'JPY' ? formatJPY(row.amount) : formatUSD(row.amount)}
+              </td>
             </tr>
           ))}
         </tbody>
