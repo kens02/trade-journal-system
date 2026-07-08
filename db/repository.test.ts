@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { db } from '@/db/schema';
 import * as repo from '@/db/repository';
+import type { BackupData } from '@/domain/backup';
 
 beforeEach(async () => {
   await db.transaction(
@@ -624,5 +625,63 @@ describe('JournalTag', () => {
     expect(afterReplace[0].id).toBe(tagB.id);
 
     expect(await repo.listAllJournalTags()).toHaveLength(1);
+  });
+});
+
+describe('restoreFromBackup', () => {
+  it('バックアップの内容で全テーブルを置き換える(復元後の余分なデータは消える)', async () => {
+    const security = await repo.createSecurity({
+      code: '1489',
+      name: 'スナップショット銘柄',
+      productType: 'jp_stock',
+      currency: 'JPY',
+    });
+    const trade = await repo.createTrade({
+      tradeDate: '2026-01-01',
+      securityId: security.id,
+      side: 'buy',
+      accountType: 'specific',
+      quantity: 10,
+      price: 100,
+      amount: 1000,
+      currency: 'JPY',
+      note: '',
+    });
+    const tag = await repo.createTag({ name: 'スナップショットタグ', kind: 'free' });
+    const entry = await repo.createJournalEntry({ tradeId: null, entryDate: '2026-01-01', body: 'スナップショット本文' });
+    await repo.setJournalTagsForEntry(entry.id, [tag.id]);
+
+    const snapshot: BackupData = {
+      securities: await repo.listSecurities(),
+      trades: await repo.listTrades(),
+      rules: await repo.listRules(),
+      ruleVersions: await repo.listAllRuleVersions(),
+      tradeRuleLinks: await repo.listAllTradeRuleLinks(),
+      tradeMatches: await repo.listAllTradeMatches(),
+      journalEntries: await repo.listJournalEntries(),
+      tags: await repo.listTags(),
+      journalTags: await repo.listAllJournalTags(),
+      priceSnapshots: await repo.listPriceSnapshots(),
+      importBatches: await repo.listImportBatches(),
+      appMeta: await repo.listAppMeta(),
+    };
+
+    // スナップショット取得後に別のデータを追加登録(復元で消えることを確認する対象)
+    await repo.createSecurity({
+      code: '9999',
+      name: '復元後に消えるはずの銘柄',
+      productType: 'jp_stock',
+      currency: 'JPY',
+    });
+
+    await repo.restoreFromBackup(snapshot);
+
+    expect(await repo.listSecurities()).toEqual([security]);
+    expect(await repo.listTrades()).toEqual([trade]);
+    expect(await repo.listTags()).toEqual([tag]);
+    const restoredEntries = await repo.listJournalEntries();
+    expect(restoredEntries).toHaveLength(1);
+    expect(restoredEntries[0].body).toBe('スナップショット本文');
+    expect(await repo.listTagsForJournalEntry(entry.id)).toEqual([tag]);
   });
 });
