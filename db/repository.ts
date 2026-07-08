@@ -1,6 +1,7 @@
 import { db, type AppMetaRecord } from '@/db/schema';
 import { normalizeName } from '@/domain/normalize';
 import { computeFifoMatchesForGroup, allocateByQuantity } from '@/domain/fifo';
+import type { BackupData } from '@/domain/backup';
 import type {
   Security,
   Trade,
@@ -588,4 +589,57 @@ export async function listTagsForJournalEntry(journalId: string): Promise<Tag[]>
 // 検索画面でのN+1回避用。全エントリ分のjournalId→タグ名一覧をまとめて構築する際に使う
 export async function listAllJournalTags(): Promise<JournalTag[]> {
   return db.journalTags.toArray();
+}
+
+// ---- Backup / Restore ----
+
+// P4前倒し: バックアップJSONからの復元(全置換)。既存の全テーブルを削除してからバックアップの内容を挿入する
+export async function restoreFromBackup(data: BackupData): Promise<void> {
+  await db.transaction(
+    'rw',
+    [
+      db.securities,
+      db.trades,
+      db.rules,
+      db.ruleVersions,
+      db.tradeRuleLinks,
+      db.tradeMatches,
+      db.journalEntries,
+      db.tags,
+      db.journalTags,
+      db.priceSnapshots,
+      db.importBatches,
+      db.appMeta,
+    ],
+    async () => {
+      await Promise.all([
+        db.securities.clear(),
+        db.trades.clear(),
+        db.rules.clear(),
+        db.ruleVersions.clear(),
+        db.tradeRuleLinks.clear(),
+        db.tradeMatches.clear(),
+        db.journalEntries.clear(),
+        db.tags.clear(),
+        db.journalTags.clear(),
+        db.priceSnapshots.clear(),
+        db.importBatches.clear(),
+        db.appMeta.clear(),
+      ]);
+      await Promise.all([
+        db.securities.bulkAdd(data.securities),
+        db.trades.bulkAdd(data.trades),
+        db.rules.bulkAdd(data.rules),
+        db.ruleVersions.bulkAdd(data.ruleVersions),
+        db.tradeRuleLinks.bulkAdd(data.tradeRuleLinks),
+        db.tradeMatches.bulkAdd(data.tradeMatches),
+        db.journalEntries.bulkAdd(data.journalEntries),
+        db.tags.bulkAdd(data.tags),
+        db.journalTags.bulkAdd(data.journalTags),
+        db.priceSnapshots.bulkAdd(data.priceSnapshots),
+        db.importBatches.bulkAdd(data.importBatches),
+        db.appMeta.bulkAdd(data.appMeta),
+      ]);
+    }
+  );
 }
