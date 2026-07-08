@@ -11,6 +11,9 @@ import type {
   ImportBatch,
   PriceSnapshot,
   TradeMatch,
+  Tag,
+  JournalEntry,
+  JournalTag,
 } from '@/domain/types';
 
 // implement-p1.md 4.4節: 書き込みはすべて本ファイル経由で行う(UIから直接Dexieを触らない)
@@ -468,4 +471,121 @@ export async function createPriceSnapshot(input: Omit<PriceSnapshot, 'id'>): Pro
 
 export async function listPriceSnapshots(): Promise<PriceSnapshot[]> {
   return db.priceSnapshots.toArray();
+}
+
+// ---- Tag ----
+
+export async function createTag(input: { name: string; kind: Tag['kind'] }): Promise<Tag> {
+  const tag: Tag = {
+    id: newId(),
+    name: input.name,
+    normalizedName: normalizeName(input.name),
+    kind: input.kind,
+    createdAt: nowIso(),
+  };
+  await db.tags.add(tag);
+  return tag;
+}
+
+// implement-p2.md 7章: タグの改名(normalizedNameも追随して更新)
+export async function updateTag(id: string, patch: { name: string }): Promise<void> {
+  await db.tags.update(id, { name: patch.name, normalizedName: normalizeName(patch.name) });
+}
+
+// implement-p2.md 7章: タグ削除時は関連するjournalTagsも同一トランザクションで削除する
+export async function deleteTag(id: string): Promise<void> {
+  await db.transaction('rw', db.tags, db.journalTags, async () => {
+    await db.journalTags.where('tagId').equals(id).delete();
+    await db.tags.delete(id);
+  });
+}
+
+export async function listTags(): Promise<Tag[]> {
+  return db.tags.toArray();
+}
+
+const EMOTION_TAG_NAMES = ['焦り', '確信', '迷い', '退屈'];
+const EMOTION_TAGS_SEEDED_KEY = 'emotionTagsSeeded';
+
+// implement-p2.md 4.2節: 感情タグの初期マスタをシードする(冪等。ユーザーが削除しても再シードしない)
+export async function ensureEmotionTagsSeeded(): Promise<void> {
+  const seeded = await getAppMeta<boolean>(EMOTION_TAGS_SEEDED_KEY);
+  if (seeded) return;
+
+  await db.transaction('rw', db.tags, db.appMeta, async () => {
+    const timestamp = nowIso();
+    for (const name of EMOTION_TAG_NAMES) {
+      await db.tags.add({
+        id: newId(),
+        name,
+        normalizedName: normalizeName(name),
+        kind: 'emotion',
+        createdAt: timestamp,
+      });
+    }
+    await db.appMeta.put({ key: EMOTION_TAGS_SEEDED_KEY, value: true });
+  });
+}
+
+// ---- JournalEntry ----
+
+export async function createJournalEntry(
+  input: Omit<JournalEntry, 'id' | 'createdAt' | 'updatedAt'>
+): Promise<JournalEntry> {
+  const timestamp = nowIso();
+  const entry: JournalEntry = {
+    ...input,
+    id: newId(),
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  await db.journalEntries.add(entry);
+  return entry;
+}
+
+export async function updateJournalEntry(
+  id: string,
+  patch: Partial<Pick<JournalEntry, 'body' | 'entryDate'>>
+): Promise<void> {
+  await db.journalEntries.update(id, { ...patch, updatedAt: nowIso() });
+}
+
+export async function getJournalEntry(id: string): Promise<JournalEntry | undefined> {
+  return db.journalEntries.get(id);
+}
+
+export async function listJournalEntries(): Promise<JournalEntry[]> {
+  return db.journalEntries.toArray();
+}
+
+// implement-p2.md 7章: エントリ削除時は関連するjournalTagsも同一トランザクションで削除する
+export async function deleteJournalEntry(id: string): Promise<void> {
+  await db.transaction('rw', db.journalEntries, db.journalTags, async () => {
+    await db.journalTags.where('journalId').equals(id).delete();
+    await db.journalEntries.delete(id);
+  });
+}
+
+// ---- JournalTag ----
+
+// implement-p2.md 7章: エントリに付与するタグ集合を一括置換する(既存関連を全削除→新規挿入)
+export async function setJournalTagsForEntry(journalId: string, tagIds: string[]): Promise<void> {
+  await db.transaction('rw', db.journalTags, async () => {
+    await db.journalTags.where('journalId').equals(journalId).delete();
+    const timestamp = nowIso();
+    if (tagIds.length > 0) {
+      await db.journalTags.bulkAdd(tagIds.map((tagId) => ({ journalId, tagId, createdAt: timestamp })));
+    }
+  });
+}
+
+export async function listTagsForJournalEntry(journalId: string): Promise<Tag[]> {
+  const links = await db.journalTags.where('journalId').equals(journalId).toArray();
+  const tags = await Promise.all(links.map((link) => db.tags.get(link.tagId)));
+  return tags.filter((t): t is Tag => t !== undefined);
+}
+
+// 検索画面でのN+1回避用。全エントリ分のjournalId→タグ名一覧をまとめて構築する際に使う
+export async function listAllJournalTags(): Promise<JournalTag[]> {
+  return db.journalTags.toArray();
 }

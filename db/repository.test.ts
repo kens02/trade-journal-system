@@ -535,3 +535,94 @@ describe('PriceSnapshot', () => {
     expect(list[0].quantity).toBe(100);
   });
 });
+
+describe('Tag', () => {
+  it('作成・改名(normalizedName追随)・一覧取得ができる', async () => {
+    const tag = await repo.createTag({ name: '確信', kind: 'emotion' });
+    expect(tag.normalizedName).toBe('確信');
+
+    await repo.updateTag(tag.id, { name: 'ﾄﾖﾀ　自動車' });
+    const list = await repo.listTags();
+    expect(list[0].name).toBe('ﾄﾖﾀ　自動車');
+    expect(list[0].normalizedName).toBe('トヨタ自動車');
+  });
+
+  it('削除時に関連するjournalTagsも同一トランザクションで削除される', async () => {
+    const tag = await repo.createTag({ name: '焦り', kind: 'emotion' });
+    const entry = await repo.createJournalEntry({ tradeId: null, entryDate: '2026-01-01', body: '本文' });
+    await repo.setJournalTagsForEntry(entry.id, [tag.id]);
+    expect(await repo.listTagsForJournalEntry(entry.id)).toHaveLength(1);
+
+    await repo.deleteTag(tag.id);
+
+    expect(await repo.listTagsForJournalEntry(entry.id)).toHaveLength(0);
+    expect(await db.tags.get(tag.id)).toBeUndefined();
+  });
+
+  it('ensureEmotionTagsSeededは初回のみ4種をシードし、再実行しても増えない', async () => {
+    await repo.ensureEmotionTagsSeeded();
+    await repo.ensureEmotionTagsSeeded();
+    const tags = await repo.listTags();
+    expect(tags).toHaveLength(4);
+    expect(tags.map((t) => t.name).sort()).toEqual(['焦り', '確信', '退屈', '迷い'].sort());
+  });
+
+  it('シード後にユーザーがタグを削除しても再シードされない', async () => {
+    await repo.ensureEmotionTagsSeeded();
+    const tags = await repo.listTags();
+    await Promise.all(tags.map((t) => repo.deleteTag(t.id)));
+
+    await repo.ensureEmotionTagsSeeded();
+    expect(await repo.listTags()).toHaveLength(0);
+  });
+});
+
+describe('JournalEntry', () => {
+  it('作成・取得・更新(updatedAt更新)・一覧・削除のラウンドトリップ', async () => {
+    const entry = await repo.createJournalEntry({
+      tradeId: null,
+      entryDate: '2026-01-01',
+      body: '本文'.repeat(1000),
+    });
+    expect(await repo.getJournalEntry(entry.id)).toEqual(entry);
+
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    await repo.updateJournalEntry(entry.id, { body: '更新後の本文' });
+    const updated = await repo.getJournalEntry(entry.id);
+    expect(updated?.body).toBe('更新後の本文');
+    expect(updated?.createdAt).toBe(entry.createdAt);
+    expect(updated?.updatedAt).not.toBe(entry.updatedAt);
+
+    expect(await repo.listJournalEntries()).toHaveLength(1);
+
+    await repo.deleteJournalEntry(entry.id);
+    expect(await repo.getJournalEntry(entry.id)).toBeUndefined();
+  });
+
+  it('取引紐付きエントリを作成できる', async () => {
+    const entry = await repo.createJournalEntry({
+      tradeId: 'trade-1',
+      entryDate: '2026-01-05',
+      body: 'このトレードは計画通り',
+    });
+    expect(entry.tradeId).toBe('trade-1');
+  });
+});
+
+describe('JournalTag', () => {
+  it('setJournalTagsForEntryは既存関連を置き換える', async () => {
+    const tagA = await repo.createTag({ name: 'タグA', kind: 'free' });
+    const tagB = await repo.createTag({ name: 'タグB', kind: 'free' });
+    const entry = await repo.createJournalEntry({ tradeId: null, entryDate: '2026-01-01', body: '' });
+
+    await repo.setJournalTagsForEntry(entry.id, [tagA.id, tagB.id]);
+    expect(await repo.listTagsForJournalEntry(entry.id)).toHaveLength(2);
+
+    await repo.setJournalTagsForEntry(entry.id, [tagB.id]);
+    const afterReplace = await repo.listTagsForJournalEntry(entry.id);
+    expect(afterReplace).toHaveLength(1);
+    expect(afterReplace[0].id).toBe(tagB.id);
+
+    expect(await repo.listAllJournalTags()).toHaveLength(1);
+  });
+});

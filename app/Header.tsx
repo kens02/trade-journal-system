@@ -65,6 +65,9 @@ export function Header() {
           <Link href="/import" className="text-blue-600 underline">
             インポート
           </Link>
+          <Link href="/journal" className="text-blue-600 underline">
+            ジャーナル
+          </Link>
         </nav>
       </div>
       <button
