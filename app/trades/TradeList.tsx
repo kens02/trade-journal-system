@@ -1,6 +1,7 @@
 'use client';
 
 import { Fragment, useState } from 'react';
+import Link from 'next/link';
 import type { Trade, Security, TradeRuleLink, TradeMatch, AccountType, Adherence } from '@/domain/types';
 import { formatJPY, formatUSD } from '@/domain/money';
 
@@ -209,6 +210,9 @@ export function TradeList({
                   <button type="button" className="text-blue-600 underline" onClick={() => onEdit(trade)}>
                     編集
                   </button>
+                  <Link href={`/journal?tradeId=${trade.id}`} className="text-blue-600 underline">
+                    ジャーナル
+                  </Link>
                   {trade.side === 'sell' && (
                     <button
                       type="button"
