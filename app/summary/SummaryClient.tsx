@@ -53,7 +53,7 @@ export function SummaryClient() {
   return (
     <div className="space-y-4">
       <p className="text-sm text-gray-500">
-        ※実現損益・勝率はP2(FIFOマッチング)実装まで表示されません。
+        ※実現損益・勝率のルール別集計はP3(分析ダッシュボード拡充)で対応予定です。個別取引の実現損益は取引一覧(画面A)を参照してください。
       </p>
       <table className="w-full text-sm border-collapse">
         <thead>
