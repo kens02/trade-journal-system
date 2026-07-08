@@ -280,6 +280,243 @@ describe('ImportBatch', () => {
   });
 });
 
+describe('TradeMatch (FIFO)', () => {
+  async function setupSecurity() {
+    return repo.createSecurity({
+      code: '1489',
+      name: 'テスト銘柄',
+      productType: 'jp_stock',
+      currency: 'JPY',
+    });
+  }
+
+  it('取引作成後、自動でfifo_autoマッチが生成され実現損益が計算される', async () => {
+    const security = await setupSecurity();
+    const buy = await repo.createTrade({
+      tradeDate: '2026-01-01',
+      securityId: security.id,
+      side: 'buy',
+      accountType: 'specific',
+      quantity: 10,
+      price: 100,
+      amount: 1000,
+      currency: 'JPY',
+      note: '',
+    });
+    const sell = await repo.createTrade({
+      tradeDate: '2026-01-02',
+      securityId: security.id,
+      side: 'sell',
+      accountType: 'specific',
+      quantity: 10,
+      price: 110,
+      amount: 1100,
+      currency: 'JPY',
+      note: '',
+    });
+
+    const matches = await repo.getTradeMatchesForTrade(sell.id);
+    expect(matches).toHaveLength(1);
+    expect(matches[0].buyTradeId).toBe(buy.id);
+    expect(matches[0].realizedPnl).toBe(100);
+    expect(matches[0].method).toBe('fifo_auto');
+  });
+
+  it('口座区分が異なる同一銘柄の売却は買付とマッチングされない', async () => {
+    const security = await setupSecurity();
+    await repo.createTrade({
+      tradeDate: '2026-01-01',
+      securityId: security.id,
+      side: 'buy',
+      accountType: 'specific',
+      quantity: 10,
+      price: 100,
+      amount: 1000,
+      currency: 'JPY',
+      note: '',
+    });
+    const sell = await repo.createTrade({
+      tradeDate: '2026-01-02',
+      securityId: security.id,
+      side: 'sell',
+      accountType: 'nisa_growth',
+      quantity: 10,
+      price: 110,
+      amount: 1100,
+      currency: 'JPY',
+      note: '',
+    });
+
+    expect(await repo.getTradeMatchesForTrade(sell.id)).toHaveLength(0);
+  });
+
+  it('setManualMatchで手動マッチを作成でき、自動再計算後も値が保持される', async () => {
+    const security = await setupSecurity();
+    const buy1 = await repo.createTrade({
+      tradeDate: '2026-01-01',
+      securityId: security.id,
+      side: 'buy',
+      accountType: 'specific',
+      quantity: 10,
+      price: 100,
+      amount: 1000,
+      currency: 'JPY',
+      note: '',
+    });
+    const buy2 = await repo.createTrade({
+      tradeDate: '2026-01-02',
+      securityId: security.id,
+      side: 'buy',
+      accountType: 'specific',
+      quantity: 10,
+      price: 105,
+      amount: 1050,
+      currency: 'JPY',
+      note: '',
+    });
+    const sell = await repo.createTrade({
+      tradeDate: '2026-01-03',
+      securityId: security.id,
+      side: 'sell',
+      accountType: 'specific',
+      quantity: 10,
+      price: 110,
+      amount: 1100,
+      currency: 'JPY',
+      note: '',
+    });
+
+    // 自動ではbuy1(先入れ)から10株マッチするはずだが、手動でbuy2から5株に変更する
+    const autoMatches = await repo.getTradeMatchesForTrade(sell.id);
+    const manual = await repo.setManualMatch({
+      sellTradeId: sell.id,
+      buyTradeId: buy2.id,
+      quantity: 5,
+      replaceMatchId: autoMatches[0].id,
+    });
+    expect(manual.method).toBe('manual');
+
+    // 別の取引を追加編集して同グループの再計算をトリガーしても、手動マッチのrealizedPnlは変わらない
+    const buy3 = await repo.createTrade({
+      tradeDate: '2026-01-04',
+      securityId: security.id,
+      side: 'buy',
+      accountType: 'specific',
+      quantity: 5,
+      price: 90,
+      amount: 450,
+      currency: 'JPY',
+      note: '',
+    });
+    await repo.updateTrade(buy3.id, { note: '再計算トリガー用' });
+
+    const matchesAfter = await repo.getTradeMatchesForTrade(sell.id);
+    const manualAfter = matchesAfter.find((m) => m.id === manual.id)!;
+    expect(manualAfter.realizedPnl).toBe(manual.realizedPnl);
+    expect(manualAfter.method).toBe('manual');
+
+    // 残り5株分はfifo_autoで自動的に埋まっているはず(buy1から)
+    const autoAfter = matchesAfter.filter((m) => m.method === 'fifo_auto');
+    expect(autoAfter).toHaveLength(1);
+    expect(autoAfter[0].buyTradeId).toBe(buy1.id);
+    expect(autoAfter[0].quantity).toBe(5);
+  });
+
+  it('残数量を超えるsetManualMatchはInsufficientQuantityErrorになる', async () => {
+    const security = await setupSecurity();
+    const buy = await repo.createTrade({
+      tradeDate: '2026-01-01',
+      securityId: security.id,
+      side: 'buy',
+      accountType: 'specific',
+      quantity: 5,
+      price: 100,
+      amount: 500,
+      currency: 'JPY',
+      note: '',
+    });
+    const sell = await repo.createTrade({
+      tradeDate: '2026-01-02',
+      securityId: security.id,
+      side: 'sell',
+      accountType: 'specific',
+      quantity: 5,
+      price: 110,
+      amount: 550,
+      currency: 'JPY',
+      note: '',
+    });
+
+    await expect(
+      repo.setManualMatch({ sellTradeId: sell.id, buyTradeId: buy.id, quantity: 6 })
+    ).rejects.toThrow(repo.InsufficientQuantityError);
+  });
+
+  it('買付不足の売却はマッチ0件のまま(未解消)で、期首買付を追加すると解消される', async () => {
+    const security = await setupSecurity();
+    const sell = await repo.createTrade({
+      tradeDate: '2026-01-02',
+      securityId: security.id,
+      side: 'sell',
+      accountType: 'specific',
+      quantity: 10,
+      price: 110,
+      amount: 1100,
+      currency: 'JPY',
+      note: '',
+    });
+    expect(await repo.getTradeMatchesForTrade(sell.id)).toHaveLength(0);
+
+    // 期首残高相当の買付を後から手動登録(約定日は売却より前)
+    await repo.createTrade({
+      tradeDate: '2025-12-01',
+      securityId: security.id,
+      side: 'buy',
+      accountType: 'specific',
+      quantity: 10,
+      price: 90,
+      amount: 900,
+      currency: 'JPY',
+      note: '期首残高',
+    });
+
+    const matches = await repo.getTradeMatchesForTrade(sell.id);
+    expect(matches).toHaveLength(1);
+    expect(matches[0].quantity).toBe(10);
+  });
+
+  it('取引削除時に紐づくTradeMatchも削除され、グループが再計算される', async () => {
+    const security = await setupSecurity();
+    const buy = await repo.createTrade({
+      tradeDate: '2026-01-01',
+      securityId: security.id,
+      side: 'buy',
+      accountType: 'specific',
+      quantity: 10,
+      price: 100,
+      amount: 1000,
+      currency: 'JPY',
+      note: '',
+    });
+    const sell = await repo.createTrade({
+      tradeDate: '2026-01-02',
+      securityId: security.id,
+      side: 'sell',
+      accountType: 'specific',
+      quantity: 10,
+      price: 110,
+      amount: 1100,
+      currency: 'JPY',
+      note: '',
+    });
+    expect(await repo.getTradeMatchesForTrade(sell.id)).toHaveLength(1);
+
+    await repo.deleteTrade(buy.id);
+
+    expect(await repo.getTradeMatchesForTrade(sell.id)).toHaveLength(0);
+  });
+});
+
 describe('PriceSnapshot', () => {
   it('createPriceSnapshot/listPriceSnapshotsで作成・一覧取得できる', async () => {
     const snapshot = await repo.createPriceSnapshot({
