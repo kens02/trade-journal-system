@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import type { Security, Trade, TradeRuleLink } from '@/domain/types';
+import type { Security, Trade, TradeRuleLink, TradeMatch } from '@/domain/types';
 import {
   createSecurity,
   createTrade,
@@ -14,9 +14,12 @@ import {
   setTradeRuleLink,
   deleteTradeRuleLink,
   getTradeRuleLink,
+  listAllTradeMatches,
+  setManualMatch,
+  deleteManualMatch,
 } from '@/db/repository';
 import { TradeForm, type TradeFormSubmitPayload, type RuleOption } from './TradeForm';
-import { TradeList, type RuleDisplay } from './TradeList';
+import { TradeList, type RuleDisplay, type SetManualMatchInput } from './TradeList';
 
 export function TradesClient() {
   const [securities, setSecurities] = useState<Security[]>([]);
@@ -26,6 +29,7 @@ export function TradesClient() {
     Map<string, RuleDisplay>
   >(new Map());
   const [linksByTradeId, setLinksByTradeId] = useState<Map<string, TradeRuleLink>>(new Map());
+  const [matchesBySellTradeId, setMatchesBySellTradeId] = useState<Map<string, TradeMatch[]>>(new Map());
   const [editingTrade, setEditingTrade] = useState<{ trade: Trade; link: TradeRuleLink | null } | null>(
     null
   );
@@ -70,6 +74,19 @@ export function TradesClient() {
       if (link) linkMap.set(t.id, link);
     });
     setLinksByTradeId(linkMap);
+
+    // implement-p2.md 6.3: 売却取引ごとのマッチ一覧を構築(実現損益列・マッチ内訳表示用)
+    const allMatches = await listAllTradeMatches();
+    const matchMap = new Map<string, TradeMatch[]>();
+    for (const match of allMatches) {
+      const list = matchMap.get(match.sellTradeId);
+      if (list) {
+        list.push(match);
+      } else {
+        matchMap.set(match.sellTradeId, [match]);
+      }
+    }
+    setMatchesBySellTradeId(matchMap);
     setLoaded(true);
   }, []);
 
@@ -145,6 +162,16 @@ export function TradesClient() {
     await refresh();
   }
 
+  async function handleSetManualMatch(input: SetManualMatchInput) {
+    await setManualMatch(input);
+    await refresh();
+  }
+
+  async function handleDeleteManualMatch(matchId: string) {
+    await deleteManualMatch(matchId);
+    await refresh();
+  }
+
   if (!loaded) {
     return <p className="text-sm text-gray-500">読み込み中...</p>;
   }
@@ -167,8 +194,11 @@ export function TradesClient() {
         securitiesById={securitiesById}
         linksByTradeId={linksByTradeId}
         ruleDisplayByVersionId={ruleDisplayByVersionId}
+        matchesBySellTradeId={matchesBySellTradeId}
         onEdit={handleEdit}
         onDelete={handleDelete}
+        onSetManualMatch={handleSetManualMatch}
+        onDeleteManualMatch={handleDeleteManualMatch}
       />
     </div>
   );
