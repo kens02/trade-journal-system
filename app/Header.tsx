@@ -14,6 +14,11 @@ import {
   listAllJournalTags,
   listPriceSnapshots,
   listImportBatches,
+  listSectors,
+  listFxRates,
+  listTargetAllocations,
+  listNisaUsages,
+  listCashBalances,
   listAppMeta,
   restoreFromBackup,
 } from '@/db/repository';
@@ -42,6 +47,11 @@ export function Header() {
         journalTags,
         priceSnapshots,
         importBatches,
+        sectors,
+        fxRates,
+        targetAllocations,
+        nisaUsages,
+        cashBalances,
         appMeta,
       ] = await Promise.all([
         listSecurities(),
@@ -55,6 +65,11 @@ export function Header() {
         listAllJournalTags(),
         listPriceSnapshots(),
         listImportBatches(),
+        listSectors(),
+        listFxRates(),
+        listTargetAllocations(),
+        listNisaUsages(),
+        listCashBalances(),
         listAppMeta(),
       ]);
       const now = new Date();
@@ -71,6 +86,11 @@ export function Header() {
           journalTags,
           priceSnapshots,
           importBatches,
+          sectors,
+          fxRates,
+          targetAllocations,
+          nisaUsages,
+          cashBalances,
           appMeta,
         },
         now.toISOString()

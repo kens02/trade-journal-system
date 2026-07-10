@@ -11,6 +11,11 @@ import type {
   Tag,
   PriceSnapshot,
   ImportBatch,
+  Sector,
+  FxRate,
+  TargetAllocation,
+  NisaUsage,
+  CashBalance,
 } from '@/domain/types';
 
 // appMetaはドメイン型に含まれない運用メタ情報専用テーブル(key-valueの汎用形)
@@ -31,6 +36,11 @@ export class TradeJournalDB extends Dexie {
   journalTags!: Table<JournalTag, [string, string]>;
   priceSnapshots!: Table<PriceSnapshot, string>;
   importBatches!: Table<ImportBatch, string>;
+  sectors!: Table<Sector, string>;
+  fxRates!: Table<FxRate, string>;
+  targetAllocations!: Table<TargetAllocation, string>;
+  nisaUsages!: Table<NisaUsage, string>;
+  cashBalances!: Table<CashBalance, string>;
   appMeta!: Table<AppMetaRecord, string>;
 
   // dbNameはテスト(マイグレーション検証)で別名DBを使うためのみ指定可能。本番は既定値を使う
@@ -98,6 +108,42 @@ export class TradeJournalDB extends Dexie {
           .modify((security) => {
             if (security.aliases === undefined) {
               security.aliases = [];
+            }
+          });
+      });
+
+    // implement-p3.md 4.1節: セクター・為替・目標配分・NISA枠・現金残高テーブルを追加。
+    // 既存SecurityにsectorId/unitShareQuantityを追加(既存データはnullで補完)
+    this.version(4)
+      .stores({
+        securities: 'id, code, normalizedName, market, [code+market], sectorId',
+        trades: 'id, tradeDate, securityId, [securityId+accountType]',
+        rules: 'id, status',
+        ruleVersions: 'id, ruleId, [ruleId+version]',
+        tradeRuleLinks: 'tradeId, ruleVersionId',
+        tradeMatches: 'id, sellTradeId, buyTradeId',
+        journalEntries: 'id, tradeId, entryDate',
+        tags: 'id, normalizedName',
+        journalTags: '[journalId+tagId], tagId, journalId',
+        priceSnapshots: 'id, securityId, [securityId+snapshotAt]',
+        importBatches: 'id, importedAt',
+        sectors: 'id, displayOrder',
+        fxRates: 'id, currencyPair, [currencyPair+asOf]',
+        targetAllocations: 'id, level, parentId',
+        nisaUsages: 'id, [year+frameType]',
+        cashBalances: 'currency',
+        appMeta: 'key',
+      })
+      .upgrade(async (tx) => {
+        await tx
+          .table('securities')
+          .toCollection()
+          .modify((security) => {
+            if (security.sectorId === undefined) {
+              security.sectorId = null;
+            }
+            if (security.unitShareQuantity === undefined) {
+              security.unitShareQuantity = null;
             }
           });
       });

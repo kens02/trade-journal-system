@@ -15,6 +15,12 @@ import type {
   Tag,
   JournalEntry,
   JournalTag,
+  Sector,
+  FxRate,
+  TargetAllocation,
+  NisaUsage,
+  CashBalance,
+  Currency,
 } from '@/domain/types';
 
 // implement-p1.md 4.4節: 書き込みはすべて本ファイル経由で行う(UIから直接Dexieを触らない)
@@ -46,17 +52,24 @@ function nowIso(): string {
 // ---- Security ----
 
 export async function createSecurity(
-  // implement-p2.md 4.1/5.1節: market/aliasesはP1由来の呼び出し元(手動入力)との互換のためoptional化し、
-  // 未指定はそれぞれnull/空配列とする
-  input: Omit<Security, 'id' | 'normalizedName' | 'createdAt' | 'market' | 'aliases'> & {
+  // implement-p2.md 4.1/5.1節・implement-p3.md 4.1節: market/aliases/sectorId/unitShareQuantityは
+  // P1・P2由来の呼び出し元(手動入力・CSV取込)との互換のためoptional化し、未指定はnull/空配列とする
+  input: Omit<
+    Security,
+    'id' | 'normalizedName' | 'createdAt' | 'market' | 'aliases' | 'sectorId' | 'unitShareQuantity'
+  > & {
     market?: string | null;
     aliases?: string[];
+    sectorId?: string | null;
+    unitShareQuantity?: number | null;
   }
 ): Promise<Security> {
   const security: Security = {
     ...input,
     market: input.market ?? null,
     aliases: input.aliases ?? [],
+    sectorId: input.sectorId ?? null,
+    unitShareQuantity: input.unitShareQuantity ?? null,
     id: newId(),
     normalizedName: normalizeName(input.name),
     createdAt: nowIso(),
@@ -591,6 +604,126 @@ export async function listAllJournalTags(): Promise<JournalTag[]> {
   return db.journalTags.toArray();
 }
 
+// ---- Sector ----
+
+export async function createSector(input: { name: string; displayOrder: number }): Promise<Sector> {
+  const sector: Sector = { ...input, id: newId(), createdAt: nowIso() };
+  await db.sectors.add(sector);
+  return sector;
+}
+
+export async function updateSector(
+  id: string,
+  patch: Partial<Pick<Sector, 'name' | 'displayOrder'>>
+): Promise<void> {
+  await db.sectors.update(id, patch);
+}
+
+// implement-p3.md 6.1節: セクター削除時は紐付くSecurity全件のsectorIdをnullにカスケードしてから削除する
+export async function deleteSector(id: string): Promise<void> {
+  await db.transaction('rw', db.sectors, db.securities, async () => {
+    await db.securities.where('sectorId').equals(id).modify({ sectorId: null });
+    await db.sectors.delete(id);
+  });
+}
+
+export async function listSectors(): Promise<Sector[]> {
+  return db.sectors.toArray();
+}
+
+// ---- FxRate ----
+
+export async function createFxRate(input: Omit<FxRate, 'id' | 'createdAt'>): Promise<FxRate> {
+  const fxRate: FxRate = { ...input, id: newId(), createdAt: nowIso() };
+  await db.fxRates.add(fxRate);
+  return fxRate;
+}
+
+export async function listFxRates(): Promise<FxRate[]> {
+  return db.fxRates.toArray();
+}
+
+// ---- TargetAllocation ----
+
+export async function createTargetAllocation(
+  input: Omit<TargetAllocation, 'id' | 'createdAt'>
+): Promise<TargetAllocation> {
+  const allocation: TargetAllocation = { ...input, id: newId(), createdAt: nowIso() };
+  await db.targetAllocations.add(allocation);
+  return allocation;
+}
+
+export async function updateTargetAllocation(
+  id: string,
+  patch: Partial<Pick<TargetAllocation, 'label' | 'targetPercent'>>
+): Promise<void> {
+  await db.targetAllocations.update(id, patch);
+}
+
+// implement-p3.md 7章: asset_classを削除すると、その配下のsectorレベルの子も同一トランザクションで削除する
+export async function deleteTargetAllocation(id: string): Promise<void> {
+  await db.transaction('rw', db.targetAllocations, async () => {
+    await db.targetAllocations.where('parentId').equals(id).delete();
+    await db.targetAllocations.delete(id);
+  });
+}
+
+export async function listTargetAllocations(): Promise<TargetAllocation[]> {
+  return db.targetAllocations.toArray();
+}
+
+// ---- NisaUsage ----
+
+// implement-p3.md 4.2節: year+frameTypeごとに1件(upsert)。既存があれば更新、なければ新規作成する
+export async function setNisaUsage(
+  input: Pick<NisaUsage, 'year' | 'frameType' | 'usedAmount' | 'annualLimit'>
+): Promise<NisaUsage> {
+  const existing = await db.nisaUsages
+    .where('[year+frameType]')
+    .equals([input.year, input.frameType])
+    .first();
+  const timestamp = nowIso();
+  if (existing) {
+    const updated: NisaUsage = {
+      ...existing,
+      usedAmount: input.usedAmount,
+      annualLimit: input.annualLimit,
+      updatedAt: timestamp,
+    };
+    await db.nisaUsages.put(updated);
+    return updated;
+  }
+  const created: NisaUsage = {
+    ...input,
+    id: newId(),
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  await db.nisaUsages.add(created);
+  return created;
+}
+
+export async function deleteNisaUsage(id: string): Promise<void> {
+  await db.nisaUsages.delete(id);
+}
+
+export async function listNisaUsages(): Promise<NisaUsage[]> {
+  return db.nisaUsages.toArray();
+}
+
+// ---- CashBalance ----
+
+// implement-p3.md 4.2節: 通貨ごとに1件(currencyが主キーのためupsert)
+export async function setCashBalance(input: { currency: Currency; amount: number }): Promise<CashBalance> {
+  const record: CashBalance = { currency: input.currency, amount: input.amount, updatedAt: nowIso() };
+  await db.cashBalances.put(record);
+  return record;
+}
+
+export async function listCashBalances(): Promise<CashBalance[]> {
+  return db.cashBalances.toArray();
+}
+
 // ---- Backup / Restore ----
 
 // P4前倒し: バックアップJSONからの復元(全置換)。既存の全テーブルを削除してからバックアップの内容を挿入する
@@ -609,6 +742,11 @@ export async function restoreFromBackup(data: BackupData): Promise<void> {
       db.journalTags,
       db.priceSnapshots,
       db.importBatches,
+      db.sectors,
+      db.fxRates,
+      db.targetAllocations,
+      db.nisaUsages,
+      db.cashBalances,
       db.appMeta,
     ],
     async () => {
@@ -624,6 +762,11 @@ export async function restoreFromBackup(data: BackupData): Promise<void> {
         db.journalTags.clear(),
         db.priceSnapshots.clear(),
         db.importBatches.clear(),
+        db.sectors.clear(),
+        db.fxRates.clear(),
+        db.targetAllocations.clear(),
+        db.nisaUsages.clear(),
+        db.cashBalances.clear(),
         db.appMeta.clear(),
       ]);
       await Promise.all([
@@ -638,6 +781,11 @@ export async function restoreFromBackup(data: BackupData): Promise<void> {
         db.journalTags.bulkAdd(data.journalTags),
         db.priceSnapshots.bulkAdd(data.priceSnapshots),
         db.importBatches.bulkAdd(data.importBatches),
+        db.sectors.bulkAdd(data.sectors),
+        db.fxRates.bulkAdd(data.fxRates),
+        db.targetAllocations.bulkAdd(data.targetAllocations),
+        db.nisaUsages.bulkAdd(data.nisaUsages),
+        db.cashBalances.bulkAdd(data.cashBalances),
         db.appMeta.bulkAdd(data.appMeta),
       ]);
     }

@@ -10,6 +10,11 @@ import type {
   JournalTag,
   PriceSnapshot,
   ImportBatch,
+  Sector,
+  FxRate,
+  TargetAllocation,
+  NisaUsage,
+  CashBalance,
 } from './types';
 
 export interface BackupAppMetaRecord {
@@ -17,8 +22,8 @@ export interface BackupAppMetaRecord {
   value: unknown;
 }
 
-// implement-p1.md 5章共通レイアウト。P4前倒し(リストア機能追加)でP2エンティティを追加し、
-// バックアップが現在の全テーブルを反映するようにした
+// implement-p1.md 5章共通レイアウト。P4前倒し(リストア機能追加)でP2エンティティを、
+// implement-p3.md 4.1節でP3エンティティを追加し、バックアップが現在の全テーブルを反映するようにした
 export interface BackupData {
   securities: Security[];
   trades: Trade[];
@@ -31,19 +36,25 @@ export interface BackupData {
   journalTags: JournalTag[];
   priceSnapshots: PriceSnapshot[];
   importBatches: ImportBatch[];
+  sectors: Sector[];
+  fxRates: FxRate[];
+  targetAllocations: TargetAllocation[];
+  nisaUsages: NisaUsage[];
+  cashBalances: CashBalance[];
   appMeta: BackupAppMetaRecord[];
 }
 
-// schemaVersion 2: P2エンティティ追加によりバックアップファイルの形状が変わったため2に上げた。
-// parseBackupPayloadはschemaVersion 1(P1時点、P2分のテーブルを含まない)のファイルも読み込める
+// schemaVersion 3: P3エンティティ(sectors/fxRates/targetAllocations/nisaUsages/cashBalances)追加により
+// バックアップファイルの形状が変わったため3に上げた。
+// parseBackupPayloadはschemaVersion 1(P1時点)・2(P2時点)のファイルも読み込める
 export interface BackupPayload {
-  schemaVersion: 2;
+  schemaVersion: 3;
   exportedAt: string;
   data: BackupData;
 }
 
 export function buildBackupPayload(data: BackupData, exportedAt: string): BackupPayload {
-  return { schemaVersion: 2, exportedAt, data };
+  return { schemaVersion: 3, exportedAt, data };
 }
 
 function pad2(n: number): string {
@@ -66,7 +77,7 @@ export type ParseBackupResult = { ok: true; payload: BackupPayload } | { ok: fal
 const REQUIRED_KEYS = ['securities', 'trades', 'rules', 'ruleVersions', 'tradeRuleLinks', 'appMeta'] as const;
 
 // リストア機能: アップロードされたバックアップJSONの構文・形状を検証する純粋関数。
-// v1ファイル(P2分のテーブルを含まない)はそれらを空配列で補完し、常にv2形状で返す
+// v1/v2ファイル(P2/P3分のテーブルを含まない)はそれらを空配列で補完し、常にv3形状で返す
 export function parseBackupPayload(raw: string): ParseBackupResult {
   let parsed: unknown;
   try {
@@ -80,7 +91,7 @@ export function parseBackupPayload(raw: string): ParseBackupResult {
   }
   const candidate = parsed as Record<string, unknown>;
 
-  if (candidate.schemaVersion !== 1 && candidate.schemaVersion !== 2) {
+  if (candidate.schemaVersion !== 1 && candidate.schemaVersion !== 2 && candidate.schemaVersion !== 3) {
     return {
       ok: false,
       error: `対応していないバックアップ形式です(schemaVersion: ${String(candidate.schemaVersion)})。`,
@@ -112,11 +123,16 @@ export function parseBackupPayload(raw: string): ParseBackupResult {
     journalTags: Array.isArray(data.journalTags) ? (data.journalTags as JournalTag[]) : [],
     priceSnapshots: Array.isArray(data.priceSnapshots) ? (data.priceSnapshots as PriceSnapshot[]) : [],
     importBatches: Array.isArray(data.importBatches) ? (data.importBatches as ImportBatch[]) : [],
+    sectors: Array.isArray(data.sectors) ? (data.sectors as Sector[]) : [],
+    fxRates: Array.isArray(data.fxRates) ? (data.fxRates as FxRate[]) : [],
+    targetAllocations: Array.isArray(data.targetAllocations) ? (data.targetAllocations as TargetAllocation[]) : [],
+    nisaUsages: Array.isArray(data.nisaUsages) ? (data.nisaUsages as NisaUsage[]) : [],
+    cashBalances: Array.isArray(data.cashBalances) ? (data.cashBalances as CashBalance[]) : [],
     appMeta: data.appMeta as BackupAppMetaRecord[],
   };
 
   return {
     ok: true,
-    payload: { schemaVersion: 2, exportedAt: candidate.exportedAt, data: normalized },
+    payload: { schemaVersion: 3, exportedAt: candidate.exportedAt, data: normalized },
   };
 }
