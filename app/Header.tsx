@@ -21,8 +21,13 @@ import {
   listCashBalances,
   listAppMeta,
   restoreFromBackup,
+  setAppMeta,
 } from '@/db/repository';
 import { buildBackupPayload, buildBackupFilename, parseBackupPayload } from '@/domain/backup';
+import { LAST_BACKUP_AT_KEY } from '@/domain/backupStatus';
+
+// implement-p4.md 7章: 最終バックアップ日時の変更をStatusBanner.tsxに通知するイベント名
+export const BACKUP_COMPLETED_EVENT = 'trade-journal:backup-completed';
 
 // implement-p1.md 5章共通レイアウト: アプリ名+画面ナビゲーション+バックアップ(JSON)ボタン。
 // P4前倒しで復元(JSON)ボタンも追加(全置換方式)
@@ -104,6 +109,10 @@ export function Header() {
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(url);
+
+      // 仕様書3.2節: 最終バックアップ日時をappMetaに記録し、StatusBanner.tsxの表示を即時更新させる
+      await setAppMeta(LAST_BACKUP_AT_KEY, now.toISOString());
+      window.dispatchEvent(new Event(BACKUP_COMPLETED_EVENT));
     } finally {
       setExporting(false);
     }
