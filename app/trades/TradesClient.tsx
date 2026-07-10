@@ -18,6 +18,7 @@ import {
   setManualMatch,
   deleteManualMatch,
 } from '@/db/repository';
+import { buildTradeCsv, buildTradeCsvFilename } from '@/domain/tradeCsv';
 import { TradeForm, type TradeFormSubmitPayload, type RuleOption } from './TradeForm';
 import { TradeList, type RuleDisplay, type SetManualMatchInput } from './TradeList';
 
@@ -172,6 +173,20 @@ export function TradesClient() {
     await refresh();
   }
 
+  // implement-p4.md 5.1節: 取引一覧CSVエクスポート(BOM付きUTF-8)
+  function handleExportCsv() {
+    const csv = buildTradeCsv(trades, securitiesById, linksByTradeId, ruleDisplayByVersionId, matchesBySellTradeId);
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = buildTradeCsvFilename(new Date());
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+
   if (!loaded) {
     return <p className="text-sm text-gray-500">読み込み中...</p>;
   }
@@ -189,6 +204,11 @@ export function TradesClient() {
         onSubmit={handleSubmit}
         onCancel={() => setEditingTrade(null)}
       />
+      <div>
+        <button type="button" className="text-sm border rounded px-3 py-1" onClick={handleExportCsv}>
+          CSVエクスポート
+        </button>
+      </div>
       <TradeList
         trades={trades}
         securitiesById={securitiesById}
