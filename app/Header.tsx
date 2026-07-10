@@ -149,6 +149,9 @@ export function Header() {
           <Link href="/rules" className="text-blue-600 underline">
             ルール
           </Link>
+          <Link href="/sectors" className="text-blue-600 underline">
+            セクター
+          </Link>
           <Link href="/summary" className="text-blue-600 underline">
             集計
           </Link>
