@@ -18,6 +18,7 @@ import {
   deleteTag,
 } from '@/db/repository';
 import { searchJournalEntries } from '@/domain/journalSearch';
+import { buildJournalCsv, buildJournalCsvFilename } from '@/domain/journalCsv';
 import { JournalEntryForm, type JournalEntryFormSubmitPayload } from './JournalEntryForm';
 import { JournalList } from './JournalList';
 import { TagManager } from './TagManager';
@@ -152,6 +153,20 @@ export function JournalClient() {
     await refresh();
   }
 
+  // implement-p4.md 5.1節: ジャーナルCSVエクスポート(BOM付きUTF-8)。検索絞り込みに関わらず全件を対象とする
+  function handleExportCsv() {
+    const csv = buildJournalCsv(entries, tradesById, securitiesById, tagsByEntryId);
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = buildJournalCsvFilename(new Date());
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+
   if (!loaded) {
     return <p className="text-sm text-gray-500">読み込み中...</p>;
   }
@@ -171,6 +186,12 @@ export function JournalClient() {
         onCreateTag={handleCreateTag}
         onCancel={() => setEditingEntry(null)}
       />
+
+      <div>
+        <button type="button" className="text-sm border rounded px-3 py-1" onClick={handleExportCsv}>
+          CSVエクスポート
+        </button>
+      </div>
 
       <div>
         <label className="block text-sm font-medium mb-1">検索(本文・タグ名の部分一致)</label>

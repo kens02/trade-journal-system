@@ -27,6 +27,7 @@ import {
 import { computeAverageCostPositions, type HoldingPosition } from '@/domain/holdings';
 import { computeSectorAllocation } from '@/domain/portfolio';
 import { buildRebalancePlan } from '@/domain/rebalance';
+import { buildHoldingCsv, buildHoldingCsvFilename } from '@/domain/holdingCsv';
 import {
   formatJPY,
   formatUSD,
@@ -103,6 +104,7 @@ export function PortfolioClient() {
   }, [refresh]);
 
   const securityById = useMemo(() => new Map(securities.map((s) => [s.id, s])), [securities]);
+  const sectorById = useMemo(() => new Map(sectors.map((s) => [s.id, s])), [sectors]);
 
   // 仕様書6.3・implement-p3.md 6.2節: 銘柄ごとの最新PriceSnapshot(snapshotAt降順の先頭)を現在値とする
   const currentPriceBySecurityId = useMemo(() => {
@@ -149,6 +151,20 @@ export function PortfolioClient() {
     await refresh();
   }
 
+  // implement-p4.md 5.1節: 保有一覧CSVエクスポート(BOM付きUTF-8)
+  function handleExportCsv() {
+    const csv = buildHoldingCsv(positions, securityById, sectorById);
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = buildHoldingCsvFilename(new Date());
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+
   if (!loaded) {
     return <p className="text-sm text-gray-500">読み込み中...</p>;
   }
@@ -191,7 +207,12 @@ export function PortfolioClient() {
   return (
     <div className="space-y-8">
       <section className="space-y-2">
-        <h2 className="text-lg font-bold">保有ポジション</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold">保有ポジション</h2>
+          <button type="button" className="text-sm border rounded px-3 py-1" onClick={handleExportCsv}>
+            CSVエクスポート
+          </button>
+        </div>
         <p className="text-xs text-gray-500">
           ※取得単価は移動平均による参考値です。実現損益(FIFO)の計算には使用していません。
         </p>
