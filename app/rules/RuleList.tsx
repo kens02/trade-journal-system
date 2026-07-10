@@ -14,6 +14,7 @@ interface Props {
   onRevise: (rule: Rule, latestVersion: RuleVersion) => void;
   onToggleStatus: (rule: Rule) => void;
   onDelete: (rule: Rule) => void;
+  onExportMarkdown: (rule: Rule, latestVersion: RuleVersion) => void;
   deleteError: { ruleId: string; message: string } | null;
 }
 
@@ -26,7 +27,7 @@ const SECTION_LABELS: { key: keyof RuleVersion['sections']; label: string }[] = 
 ];
 
 // implement-p1.md 5章画面B: 一覧(ルール名/状態/最新version/紐付く取引件数)+改訂/廃止/再有効化/物理削除/履歴表示
-export function RuleList({ rows, onRevise, onToggleStatus, onDelete, deleteError }: Props) {
+export function RuleList({ rows, onRevise, onToggleStatus, onDelete, onExportMarkdown, deleteError }: Props) {
   const [expandedRuleId, setExpandedRuleId] = useState<string | null>(null);
   const [selectedVersionByRule, setSelectedVersionByRule] = useState<Record<string, number>>({});
 
@@ -72,6 +73,13 @@ export function RuleList({ rows, onRevise, onToggleStatus, onDelete, deleteError
                     onClick={() => setExpandedRuleId(isExpanded ? null : rule.id)}
                   >
                     履歴
+                  </button>
+                  <button
+                    type="button"
+                    className="text-gray-700 underline"
+                    onClick={() => latest && onExportMarkdown(rule, latest)}
+                  >
+                    Markdown出力
                   </button>
                   <button type="button" className="text-amber-700 underline" onClick={() => onToggleStatus(rule)}>
                     {rule.status === 'active' ? '廃止' : '再有効化'}

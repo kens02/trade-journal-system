@@ -13,6 +13,7 @@ import {
   listTradeRuleLinksByRuleVersion,
   RuleInUseError,
 } from '@/db/repository';
+import { buildRuleMarkdown, buildRuleMarkdownFilename } from '@/domain/ruleMarkdown';
 import { RuleForm, type RuleFormPayload } from './RuleForm';
 import { RuleList, type RuleRow } from './RuleList';
 
@@ -93,6 +94,20 @@ export function RulesClient() {
     }
   }
 
+  // implement-p4.md 5.2節: ルールMarkdownエクスポート(常に最新バージョンのみ、rule-{slug}-v{version}.md)
+  function handleExportMarkdown(rule: Rule, latestVersion: RuleVersion) {
+    const markdown = buildRuleMarkdown(rule, latestVersion);
+    const blob = new Blob([markdown], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = buildRuleMarkdownFilename(rule, latestVersion);
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+
   if (!loaded) {
     return <p className="text-sm text-gray-500">読み込み中...</p>;
   }
@@ -112,6 +127,7 @@ export function RulesClient() {
         onRevise={handleRevise}
         onToggleStatus={handleToggleStatus}
         onDelete={handleDelete}
+        onExportMarkdown={handleExportMarkdown}
         deleteError={deleteError}
       />
     </div>
