@@ -152,6 +152,9 @@ export function Header() {
           <Link href="/sectors" className="text-blue-600 underline">
             セクター
           </Link>
+          <Link href="/portfolio" className="text-blue-600 underline">
+            ポートフォリオ
+          </Link>
           <Link href="/summary" className="text-blue-600 underline">
             集計
           </Link>
