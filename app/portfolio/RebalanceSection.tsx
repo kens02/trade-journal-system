@@ -99,7 +99,7 @@ export function RebalanceSection({
                           <li key={`${action.securityId}:${action.accountType}`}>
                             {action.side === 'buy' ? '買付' : '売却'} {action.securityName} {action.quantity}
                             株/口(概算{formatAmount(action.estimatedAmount, action.currency)})
-                            {frameType && (
+                            {action.side === 'buy' && frameType && (
                               <span className={nisaCheck?.fitsWithinFrame === false ? 'text-red-600' : 'text-gray-500'}>
                                 {' '}
                                 [

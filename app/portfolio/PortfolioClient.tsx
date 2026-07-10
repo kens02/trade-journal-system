@@ -27,7 +27,14 @@ import {
 import { computeAverageCostPositions, type HoldingPosition } from '@/domain/holdings';
 import { computeSectorAllocation } from '@/domain/portfolio';
 import { buildRebalancePlan } from '@/domain/rebalance';
-import { formatJPY, formatUSD, parseJPYAmount, parseUSDAmount } from '@/domain/money';
+import {
+  formatJPY,
+  formatUSD,
+  parseJPYAmount,
+  parseUSDAmount,
+  parseJPYAmountAllowZero,
+  parseUSDAmountAllowZero,
+} from '@/domain/money';
 import { TargetAllocationSection } from './TargetAllocationSection';
 import { RebalanceSection } from './RebalanceSection';
 import { FxRateSection } from './FxRateSection';
@@ -131,8 +138,8 @@ export function PortfolioClient() {
 
   async function handleSaveCash(e: React.FormEvent) {
     e.preventDefault();
-    const jpyAmount = parseJPYAmount(cashDraft.jpy || '0');
-    const usdAmount = parseUSDAmount(cashDraft.usd || '0');
+    const jpyAmount = parseJPYAmountAllowZero(cashDraft.jpy || '0');
+    const usdAmount = parseUSDAmountAllowZero(cashDraft.usd || '0');
     if (jpyAmount !== null) {
       await setCashBalance({ currency: 'JPY', amount: jpyAmount });
     }
