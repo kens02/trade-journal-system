@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { parseJPYPrice, parseJPYAmount, parseUSDPrice, parseUSDAmount } from '@/domain/money';
+import {
+  parseJPYPrice,
+  parseJPYAmount,
+  parseUSDPrice,
+  parseUSDAmount,
+  parseJPYAmountAllowZero,
+  parseUSDAmountAllowZero,
+} from '@/domain/money';
 
 describe('parseJPYPrice', () => {
   it('小数第1位までの正の数を受理する', () => {
@@ -53,5 +60,28 @@ describe('parseUSDAmount', () => {
   });
   it('浮動小数点誤差が出ない値でも正しく丸められる', () => {
     expect(parseUSDAmount('0.29')).toBe(29);
+  });
+});
+
+describe('parseJPYAmountAllowZero', () => {
+  it('0円を有効な値として受理する(現金残高・NISA利用額はゼロがあり得るため)', () => {
+    expect(parseJPYAmountAllowZero('0')).toBe(0);
+    expect(parseJPYAmountAllowZero('1000')).toBe(1000);
+  });
+  it('負数・小数・非数値はnull', () => {
+    expect(parseJPYAmountAllowZero('-1')).toBeNull();
+    expect(parseJPYAmountAllowZero('1.5')).toBeNull();
+    expect(parseJPYAmountAllowZero('')).toBeNull();
+  });
+});
+
+describe('parseUSDAmountAllowZero', () => {
+  it('0を有効な値として受理し、整数セントへ変換する', () => {
+    expect(parseUSDAmountAllowZero('0')).toBe(0);
+    expect(parseUSDAmountAllowZero('100.25')).toBe(10025);
+  });
+  it('負数・非数値はnull', () => {
+    expect(parseUSDAmountAllowZero('-1')).toBeNull();
+    expect(parseUSDAmountAllowZero('')).toBeNull();
   });
 });

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import type { NisaUsage } from '@/domain/types';
 import { setNisaUsage, deleteNisaUsage } from '@/db/repository';
-import { formatJPY } from '@/domain/money';
+import { formatJPY, parseJPYAmountAllowZero } from '@/domain/money';
 
 interface Props {
   nisaUsages: NisaUsage[];
@@ -30,9 +30,9 @@ export function NisaUsageSection({ nisaUsages, onChanged }: Props) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const parsedYear = Number(year);
-    const parsedUsed = Number(usedAmount);
-    const parsedLimit = Number(annualLimit);
-    if (!Number.isFinite(parsedYear) || !Number.isFinite(parsedUsed) || !Number.isFinite(parsedLimit)) return;
+    const parsedUsed = parseJPYAmountAllowZero(usedAmount);
+    const parsedLimit = parseJPYAmountAllowZero(annualLimit);
+    if (!Number.isFinite(parsedYear) || parsedUsed === null || parsedLimit === null) return;
     await setNisaUsage({ year: parsedYear, frameType, usedAmount: parsedUsed, annualLimit: parsedLimit });
     setUsedAmount('');
     setAnnualLimit('');
