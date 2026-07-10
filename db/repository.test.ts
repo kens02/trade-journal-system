@@ -6,18 +6,25 @@ import type { BackupData } from '@/domain/backup';
 beforeEach(async () => {
   await db.transaction(
     'rw',
-    db.securities,
-    db.trades,
-    db.rules,
-    db.ruleVersions,
-    db.tradeRuleLinks,
-    db.tradeMatches,
-    db.journalEntries,
-    db.tags,
-    db.journalTags,
-    db.priceSnapshots,
-    db.importBatches,
-    db.appMeta,
+    [
+      db.securities,
+      db.trades,
+      db.rules,
+      db.ruleVersions,
+      db.tradeRuleLinks,
+      db.tradeMatches,
+      db.journalEntries,
+      db.tags,
+      db.journalTags,
+      db.priceSnapshots,
+      db.importBatches,
+      db.sectors,
+      db.fxRates,
+      db.targetAllocations,
+      db.nisaUsages,
+      db.cashBalances,
+      db.appMeta,
+    ],
     async () => {
       await db.securities.clear();
       await db.trades.clear();
@@ -30,6 +37,11 @@ beforeEach(async () => {
       await db.journalTags.clear();
       await db.priceSnapshots.clear();
       await db.importBatches.clear();
+      await db.sectors.clear();
+      await db.fxRates.clear();
+      await db.targetAllocations.clear();
+      await db.nisaUsages.clear();
+      await db.cashBalances.clear();
       await db.appMeta.clear();
     }
   );
@@ -663,6 +675,11 @@ describe('restoreFromBackup', () => {
       journalTags: await repo.listAllJournalTags(),
       priceSnapshots: await repo.listPriceSnapshots(),
       importBatches: await repo.listImportBatches(),
+      sectors: await repo.listSectors(),
+      fxRates: await repo.listFxRates(),
+      targetAllocations: await repo.listTargetAllocations(),
+      nisaUsages: await repo.listNisaUsages(),
+      cashBalances: await repo.listCashBalances(),
       appMeta: await repo.listAppMeta(),
     };
 
@@ -683,5 +700,117 @@ describe('restoreFromBackup', () => {
     expect(restoredEntries).toHaveLength(1);
     expect(restoredEntries[0].body).toBe('スナップショット本文');
     expect(await repo.listTagsForJournalEntry(entry.id)).toEqual([tag]);
+  });
+});
+
+describe('Sector', () => {
+  it('作成・改名・表示順変更ができる', async () => {
+    const sector = await repo.createSector({ name: 'テクノロジー', displayOrder: 1 });
+    expect(sector.name).toBe('テクノロジー');
+
+    await repo.updateSector(sector.id, { name: 'IT', displayOrder: 2 });
+    const list = await repo.listSectors();
+    expect(list[0].name).toBe('IT');
+    expect(list[0].displayOrder).toBe(2);
+  });
+
+  it('削除時に紐付くSecurityのsectorIdがnullにカスケードされる', async () => {
+    const sector = await repo.createSector({ name: 'ヘルスケア', displayOrder: 1 });
+    const security = await repo.createSecurity({
+      code: '1489',
+      name: 'テスト銘柄',
+      productType: 'jp_stock',
+      currency: 'JPY',
+      sectorId: sector.id,
+    });
+    expect((await repo.getSecurity(security.id))?.sectorId).toBe(sector.id);
+
+    await repo.deleteSector(sector.id);
+
+    expect((await repo.getSecurity(security.id))?.sectorId).toBeNull();
+    expect(await repo.listSectors()).toHaveLength(0);
+  });
+});
+
+describe('FxRate', () => {
+  it('作成・一覧取得ができる', async () => {
+    const fxRate = await repo.createFxRate({ currencyPair: 'USD/JPY', rate: 150.25, asOf: '2026-07-01' });
+    expect(fxRate.id).toBeDefined();
+
+    const list = await repo.listFxRates();
+    expect(list).toHaveLength(1);
+    expect(list[0].currencyPair).toBe('USD/JPY');
+  });
+});
+
+describe('TargetAllocation', () => {
+  it('作成・更新ができ、asset_class削除時に配下のsectorも削除される', async () => {
+    const assetClass = await repo.createTargetAllocation({
+      label: '日本株',
+      level: 'asset_class',
+      parentId: null,
+      targetPercent: 50,
+      sectorId: null,
+    });
+    const sector = await repo.createSector({ name: 'テクノロジー', displayOrder: 1 });
+    const sectorAllocation = await repo.createTargetAllocation({
+      label: 'テクノロジー',
+      level: 'sector',
+      parentId: assetClass.id,
+      targetPercent: 30,
+      sectorId: sector.id,
+    });
+
+    await repo.updateTargetAllocation(assetClass.id, { targetPercent: 60 });
+    expect((await repo.listTargetAllocations()).find((a) => a.id === assetClass.id)?.targetPercent).toBe(60);
+
+    await repo.deleteTargetAllocation(assetClass.id);
+    const remaining = await repo.listTargetAllocations();
+    expect(remaining.find((a) => a.id === assetClass.id)).toBeUndefined();
+    expect(remaining.find((a) => a.id === sectorAllocation.id)).toBeUndefined();
+  });
+});
+
+describe('NisaUsage', () => {
+  it('setNisaUsageは同一year+frameTypeなら更新、なければ新規作成する(upsert)', async () => {
+    const created = await repo.setNisaUsage({
+      year: 2026,
+      frameType: 'growth',
+      usedAmount: 500000,
+      annualLimit: 2400000,
+    });
+    expect(await repo.listNisaUsages()).toHaveLength(1);
+
+    const updated = await repo.setNisaUsage({
+      year: 2026,
+      frameType: 'growth',
+      usedAmount: 800000,
+      annualLimit: 2400000,
+    });
+    expect(updated.id).toBe(created.id);
+    const list = await repo.listNisaUsages();
+    expect(list).toHaveLength(1);
+    expect(list[0].usedAmount).toBe(800000);
+
+    await repo.setNisaUsage({ year: 2026, frameType: 'tsumitate', usedAmount: 100000, annualLimit: 1200000 });
+    expect(await repo.listNisaUsages()).toHaveLength(2);
+
+    await repo.deleteNisaUsage(created.id);
+    expect(await repo.listNisaUsages()).toHaveLength(1);
+  });
+});
+
+describe('CashBalance', () => {
+  it('setCashBalanceは通貨ごとにupsertする', async () => {
+    await repo.setCashBalance({ currency: 'JPY', amount: 100000 });
+    expect(await repo.listCashBalances()).toHaveLength(1);
+
+    await repo.setCashBalance({ currency: 'JPY', amount: 200000 });
+    const list = await repo.listCashBalances();
+    expect(list).toHaveLength(1);
+    expect(list[0].amount).toBe(200000);
+
+    await repo.setCashBalance({ currency: 'USD', amount: 5000 });
+    expect(await repo.listCashBalances()).toHaveLength(2);
   });
 });

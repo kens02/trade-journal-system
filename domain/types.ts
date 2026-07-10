@@ -19,6 +19,12 @@ export interface Security {
   // 仕様書6.3・implement-p2.md 5.1節: CSV取込の未照合解決で確定したエイリアス(生の銘柄名文字列)。
   // 次回取込時、normalizedName一致に加えこの配列の正規化済み値との一致でも自動照合する
   aliases: string[];
+  // 仕様書5.1「セクター(sector_id、任意)」/ implement-p3.md 4.1節: 任意のセクター紐付け。
+  // セクター削除時はカスケードでnullに戻す(Sectorのハード削除を妨げない)
+  sectorId: string | null;
+  // 仕様書5.1「単元株数」/ implement-p3.md 4.1節(F0発見の記載漏れを反映): リバランスの必要売買数量算出に使用。
+  // CSVに含まれないため手動入力。株式・ETF以外(投信)は意味を持たずnull
+  unitShareQuantity: number | null;
 }
 
 export interface Trade {
@@ -127,4 +133,54 @@ export interface ImportBatch {
   fileName: string;
   importedAt: string;
   counts: { imported: number; skipped: number; error: number };
+}
+
+// 仕様書5.1・implement-p3.md 4.2節: 銘柄セクターマスタ
+export interface Sector {
+  id: string;
+  name: string;
+  displayOrder: number;
+  createdAt: string;
+}
+
+// 仕様書4.4/5.1・implement-p3.md 4.2節: 通貨ペア手動入力レート。JPY換算は表示目的のみで精度を重視しない(C7決定)
+export interface FxRate {
+  id: string;
+  currencyPair: string; // 'USD/JPY' 形式
+  rate: number;
+  asOf: string; // 'YYYY-MM-DD'。この日付以降の表示に適用する最新レートとして扱う
+  createdAt: string;
+}
+
+// 仕様書4.4/5.1・implement-p3.md 4.2節: アセットクラス階層+セクターレベルの目標配分。
+// 同一parentId配下のtargetPercent合計は100であること。アセットクラス名はユーザーの自由入力(labelに直接保持)
+export interface TargetAllocation {
+  id: string;
+  label: string;
+  level: 'asset_class' | 'sector';
+  parentId: string | null; // asset_classはnull。sectorは所属するasset_classのTargetAllocation.idを親に持つ
+  targetPercent: number; // 0〜100
+  sectorId: string | null; // level: 'sector' の場合のみSectorへの参照を持つ
+  createdAt: string;
+}
+
+// 仕様書4.4/5.1・implement-p3.md 4.2節: NISA枠の年間利用額(手入力ベース)。
+// annualLimitは制度改正に備えユーザーが編集できる設定値としてyear+frameTypeごとに保持する(ハードコードしない)
+export interface NisaUsage {
+  id: string;
+  year: number;
+  frameType: 'growth' | 'tsumitate'; // 成長投資枠 / つみたて投資枠
+  usedAmount: number; // 整数円
+  annualLimit: number; // 整数円
+  createdAt: string;
+  updatedAt: string;
+}
+
+// implement-p3.md 4.2節(F0確認事項): リバランス計算の母数に現金を含めるため新設。
+// 仕様書のアセットクラス例に「現金」が含まれるが現金残高を記録するエンティティが存在しなかったため追加。
+// 通貨ごとに1レコード(currencyを主キーとして扱う)
+export interface CashBalance {
+  currency: Currency;
+  amount: number; // JPY: 整数円 / USD: 整数セント
+  updatedAt: string;
 }

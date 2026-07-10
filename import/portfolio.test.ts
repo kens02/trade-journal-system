@@ -13,6 +13,8 @@ function makeSecurity(overrides: Partial<Security> & Pick<Security, 'id'>): Secu
     currency: 'JPY',
     market: null,
     aliases: [],
+    sectorId: null,
+    unitShareQuantity: null,
     createdAt: '2026-01-01T00:00:00.000Z',
     ...overrides,
   };
