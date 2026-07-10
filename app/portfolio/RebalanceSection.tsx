@@ -1,8 +1,9 @@
 'use client';
 
 import type { RebalancePlan } from '@/domain/rebalance';
+import { checkNisaFrame } from '@/domain/nisa';
 import { formatJPY, formatUSD } from '@/domain/money';
-import type { Currency } from '@/domain/types';
+import type { Currency, NisaUsage, AccountType } from '@/domain/types';
 
 function formatAmount(amount: number, currency: Currency): string {
   return currency === 'JPY' ? formatJPY(Math.round(amount)) : formatUSD(Math.round(amount));
@@ -14,16 +15,31 @@ const KIND_LABEL: Record<RebalancePlan['leaves'][number]['kind'], string> = {
   unsupported: '未対応(セクター未設定)',
 };
 
+// implement-p3.md 8章: NISA枠残枠判定の対象となる口座区分とNisaUsage.frameTypeの対応
+const NISA_FRAME_TYPE_BY_ACCOUNT: Partial<Record<AccountType, NisaUsage['frameType']>> = {
+  nisa_growth: 'growth',
+  nisa_tsumitate: 'tsumitate',
+};
+
 interface Props {
   plan: RebalancePlan;
   hasAllocations: boolean;
   noSellMode: boolean;
   onToggleNoSellMode: (value: boolean) => void;
+  nisaUsages: NisaUsage[];
+  rebalanceYear: number;
 }
 
 // implement-p3.md 7章: 目標配分との乖離額・乖離率、必要売買数量(単元株数・口数考慮)、
 // ノーセルリバランスモードの切替を表示する
-export function RebalanceSection({ plan, hasAllocations, noSellMode, onToggleNoSellMode }: Props) {
+export function RebalanceSection({
+  plan,
+  hasAllocations,
+  noSellMode,
+  onToggleNoSellMode,
+  nisaUsages,
+  rebalanceYear,
+}: Props) {
   return (
     <section className="space-y-2">
       <h2 className="text-lg font-bold">リバランス計算</h2>
@@ -73,12 +89,31 @@ export function RebalanceSection({ plan, hasAllocations, noSellMode, onToggleNoS
                     '—'
                   ) : (
                     <ul className="space-y-0.5">
-                      {leaf.actions.map((action) => (
-                        <li key={action.securityId}>
-                          {action.side === 'buy' ? '買付' : '売却'} {action.securityName} {action.quantity}株/口(概算
-                          {formatAmount(action.estimatedAmount, action.currency)})
-                        </li>
-                      ))}
+                      {leaf.actions.map((action) => {
+                        const frameType = NISA_FRAME_TYPE_BY_ACCOUNT[action.accountType];
+                        const nisaCheck =
+                          action.side === 'buy' && frameType
+                            ? checkNisaFrame(action.estimatedAmountJpy, rebalanceYear, frameType, nisaUsages)
+                            : null;
+                        return (
+                          <li key={`${action.securityId}:${action.accountType}`}>
+                            {action.side === 'buy' ? '買付' : '売却'} {action.securityName} {action.quantity}
+                            株/口(概算{formatAmount(action.estimatedAmount, action.currency)})
+                            {frameType && (
+                              <span className={nisaCheck?.fitsWithinFrame === false ? 'text-red-600' : 'text-gray-500'}>
+                                {' '}
+                                [
+                                {nisaCheck === null
+                                  ? `${rebalanceYear}年NISA枠未登録`
+                                  : nisaCheck.fitsWithinFrame
+                                    ? `NISA残枠内(残り${formatJPY(nisaCheck.remainingAmount)})`
+                                    : `NISA残枠超過(残り${formatJPY(nisaCheck.remainingAmount)})`}
+                                ]
+                              </span>
+                            )}
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
                 </td>
