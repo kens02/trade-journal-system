@@ -1,5 +1,5 @@
 import type { HoldingPosition } from './holdings';
-import type { Security, Sector, CashBalance, TargetAllocation, Currency } from './types';
+import type { Security, Sector, CashBalance, TargetAllocation, Currency, AccountType } from './types';
 
 // implement-p3.md 7章: 目標配分(アセットクラス→セクター)の管理・乖離計算・必要売買数量・
 // ノーセルリバランスモードを実装する純粋関数群。
@@ -21,9 +21,11 @@ export type RebalanceLeafKind = 'sector' | 'cash' | 'unsupported';
 export interface RebalanceAction {
   securityId: string;
   securityName: string;
+  accountType: AccountType; // implement-p3.md 8章: NISA枠残枠判定に使う(nisa_growth/nisa_tsumitateのみ対象)
   side: 'buy' | 'sell';
   quantity: number; // 単元株数/口数の倍数に丸めた概算数量
   estimatedAmount: number; // 概算金額(証券自身の通貨のamount単位。JPY: 整数円、USD: 整数セント)
+  estimatedAmountJpy: number; // 概算金額のJPY換算(NISA枠は円建てのため判定用に保持)
   currency: Currency;
 }
 
@@ -182,6 +184,7 @@ export function buildRebalancePlan(input: {
         matchedValuations,
         noSellMode,
         currentPriceBySecurityId,
+        usdJpyRate,
       });
 
       leaves.push(
@@ -238,8 +241,9 @@ function buildSectorActions(input: {
   }[];
   noSellMode: boolean;
   currentPriceBySecurityId: Map<string, number>;
+  usdJpyRate: number | null;
 }): RebalanceAction[] {
-  const { deviationAmountJpy, matchedValuations, noSellMode, currentPriceBySecurityId } = input;
+  const { deviationAmountJpy, matchedValuations, noSellMode, currentPriceBySecurityId, usdJpyRate } = input;
 
   const side: 'buy' | 'sell' = deviationAmountJpy < 0 ? 'buy' : 'sell';
   if (side === 'sell' && noSellMode) return []; // ノーセルモードでは売却提案を出さない
@@ -276,12 +280,20 @@ function buildSectorActions(input: {
     }
     if (quantity <= 0) continue;
 
+    const estimatedAmount = Math.round(quantity * currentPrice);
+    // eligibleはevaluationAmountJpyが非nullの要素のみ(JPYは常に変換可、USDはusdJpyRateがある場合のみ
+    // evaluationAmountJpyが入る)ため、ここに到達したUSD証券はusdJpyRateが必ず存在する
+    const estimatedAmountJpy =
+      security.currency === 'JPY' ? estimatedAmount : Math.round((estimatedAmount / 100) * (usdJpyRate as number));
+
     actions.push({
       securityId: security.id,
       securityName: security.name,
+      accountType: position.accountType,
       side,
       quantity,
-      estimatedAmount: Math.round(quantity * currentPrice),
+      estimatedAmount,
+      estimatedAmountJpy,
       currency: security.currency,
     });
   }

@@ -10,6 +10,7 @@ import type {
   AccountType,
   TargetAllocation,
   FxRate,
+  NisaUsage,
 } from '@/domain/types';
 import {
   listTrades,
@@ -21,6 +22,7 @@ import {
   setCashBalance,
   listTargetAllocations,
   listFxRates,
+  listNisaUsages,
 } from '@/db/repository';
 import { computeAverageCostPositions, type HoldingPosition } from '@/domain/holdings';
 import { computeSectorAllocation } from '@/domain/portfolio';
@@ -28,6 +30,8 @@ import { buildRebalancePlan } from '@/domain/rebalance';
 import { formatJPY, formatUSD, parseJPYAmount, parseUSDAmount } from '@/domain/money';
 import { TargetAllocationSection } from './TargetAllocationSection';
 import { RebalanceSection } from './RebalanceSection';
+import { FxRateSection } from './FxRateSection';
+import { NisaUsageSection } from './NisaUsageSection';
 
 const ACCOUNT_LABEL: Record<AccountType, string> = {
   specific: '特定',
@@ -54,21 +58,24 @@ export function PortfolioClient() {
   const [positions, setPositions] = useState<HoldingPosition[]>([]);
   const [targetAllocations, setTargetAllocations] = useState<TargetAllocation[]>([]);
   const [fxRates, setFxRates] = useState<FxRate[]>([]);
+  const [nisaUsages, setNisaUsages] = useState<NisaUsage[]>([]);
   const [noSellMode, setNoSellMode] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [manualPriceDraft, setManualPriceDraft] = useState<Record<string, string>>({});
   const [cashDraft, setCashDraft] = useState<{ jpy: string; usd: string }>({ jpy: '', usd: '' });
 
   const refresh = useCallback(async () => {
-    const [trades, securityRows, sectorRows, snapshotRows, cashRows, allocationRows, fxRateRows] = await Promise.all([
-      listTrades(),
-      listSecurities(),
-      listSectors(),
-      listPriceSnapshots(),
-      listCashBalances(),
-      listTargetAllocations(),
-      listFxRates(),
-    ]);
+    const [trades, securityRows, sectorRows, snapshotRows, cashRows, allocationRows, fxRateRows, nisaRows] =
+      await Promise.all([
+        listTrades(),
+        listSecurities(),
+        listSectors(),
+        listPriceSnapshots(),
+        listCashBalances(),
+        listTargetAllocations(),
+        listFxRates(),
+        listNisaUsages(),
+      ]);
     setSecurities(securityRows);
     setSectors(sectorRows);
     setPriceSnapshots(snapshotRows);
@@ -76,6 +83,7 @@ export function PortfolioClient() {
     setPositions(computeAverageCostPositions(trades));
     setTargetAllocations(allocationRows);
     setFxRates(fxRateRows);
+    setNisaUsages(nisaRows);
     setCashDraft({
       jpy: String(cashRows.find((c) => c.currency === 'JPY')?.amount ?? 0),
       usd: ((cashRows.find((c) => c.currency === 'USD')?.amount ?? 0) / 100).toFixed(2),
@@ -192,6 +200,7 @@ export function PortfolioClient() {
                 <th className="p-2">平均取得単価</th>
                 <th className="p-2">現在値</th>
                 <th className="p-2">評価額</th>
+                <th className="p-2">JPY換算(参考)</th>
               </tr>
             </thead>
             <tbody>
@@ -200,6 +209,10 @@ export function PortfolioClient() {
                 const currentPrice = currentPriceBySecurityId.get(position.securityId);
                 const evaluationAmount =
                   currentPrice !== undefined ? position.quantity * currentPrice : null;
+                const evaluationAmountJpy =
+                  position.currency === 'USD' && evaluationAmount !== null && latestUsdJpyRate !== undefined
+                    ? Math.round((evaluationAmount / 100) * latestUsdJpyRate)
+                    : null;
                 return (
                   <tr key={`${position.securityId}::${position.accountType}`} className="border-b">
                     <td className="p-2">{security?.name ?? '(不明な銘柄)'}</td>
@@ -236,6 +249,13 @@ export function PortfolioClient() {
                     </td>
                     <td className="p-2">
                       {evaluationAmount !== null ? formatAmount(evaluationAmount, position.currency) : '未登録'}
+                    </td>
+                    <td className="p-2 text-gray-500">
+                      {position.currency === 'JPY'
+                        ? '—'
+                        : evaluationAmountJpy !== null
+                          ? formatJPY(evaluationAmountJpy)
+                          : '為替レート未登録'}
                     </td>
                   </tr>
                 );
@@ -275,12 +295,17 @@ export function PortfolioClient() {
       <SectorAllocationSection title="セクター別配分(JPY)" allocation={jpyAllocation} currency="JPY" />
       <SectorAllocationSection title="セクター別配分(USD)" allocation={usdAllocation} currency="USD" />
 
+      <FxRateSection fxRates={fxRates} onChanged={refresh} />
+      <NisaUsageSection nisaUsages={nisaUsages} onChanged={refresh} />
+
       <TargetAllocationSection sectors={sectors} allocations={targetAllocations} onChanged={refresh} />
       <RebalanceSection
         plan={rebalancePlan}
         hasAllocations={targetAllocations.length > 0}
         noSellMode={noSellMode}
         onToggleNoSellMode={setNoSellMode}
+        nisaUsages={nisaUsages}
+        rebalanceYear={new Date().getFullYear()}
       />
     </div>
   );
