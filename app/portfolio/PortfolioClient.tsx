@@ -1,7 +1,16 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { Security, Sector, PriceSnapshot, CashBalance, Currency, AccountType } from '@/domain/types';
+import type {
+  Security,
+  Sector,
+  PriceSnapshot,
+  CashBalance,
+  Currency,
+  AccountType,
+  TargetAllocation,
+  FxRate,
+} from '@/domain/types';
 import {
   listTrades,
   listSecurities,
@@ -10,10 +19,15 @@ import {
   listCashBalances,
   createPriceSnapshot,
   setCashBalance,
+  listTargetAllocations,
+  listFxRates,
 } from '@/db/repository';
 import { computeAverageCostPositions, type HoldingPosition } from '@/domain/holdings';
 import { computeSectorAllocation } from '@/domain/portfolio';
+import { buildRebalancePlan } from '@/domain/rebalance';
 import { formatJPY, formatUSD, parseJPYAmount, parseUSDAmount } from '@/domain/money';
+import { TargetAllocationSection } from './TargetAllocationSection';
+import { RebalanceSection } from './RebalanceSection';
 
 const ACCOUNT_LABEL: Record<AccountType, string> = {
   specific: '特定',
@@ -38,23 +52,30 @@ export function PortfolioClient() {
   const [priceSnapshots, setPriceSnapshots] = useState<PriceSnapshot[]>([]);
   const [cashBalances, setCashBalances] = useState<CashBalance[]>([]);
   const [positions, setPositions] = useState<HoldingPosition[]>([]);
+  const [targetAllocations, setTargetAllocations] = useState<TargetAllocation[]>([]);
+  const [fxRates, setFxRates] = useState<FxRate[]>([]);
+  const [noSellMode, setNoSellMode] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [manualPriceDraft, setManualPriceDraft] = useState<Record<string, string>>({});
   const [cashDraft, setCashDraft] = useState<{ jpy: string; usd: string }>({ jpy: '', usd: '' });
 
   const refresh = useCallback(async () => {
-    const [trades, securityRows, sectorRows, snapshotRows, cashRows] = await Promise.all([
+    const [trades, securityRows, sectorRows, snapshotRows, cashRows, allocationRows, fxRateRows] = await Promise.all([
       listTrades(),
       listSecurities(),
       listSectors(),
       listPriceSnapshots(),
       listCashBalances(),
+      listTargetAllocations(),
+      listFxRates(),
     ]);
     setSecurities(securityRows);
     setSectors(sectorRows);
     setPriceSnapshots(snapshotRows);
     setCashBalances(cashRows);
     setPositions(computeAverageCostPositions(trades));
+    setTargetAllocations(allocationRows);
+    setFxRates(fxRateRows);
     setCashDraft({
       jpy: String(cashRows.find((c) => c.currency === 'JPY')?.amount ?? 0),
       usd: ((cashRows.find((c) => c.currency === 'USD')?.amount ?? 0) / 100).toFixed(2),
@@ -135,6 +156,22 @@ export function PortfolioClient() {
     usdCash,
     'USD'
   );
+
+  // implement-p3.md 7章: リバランス計算(通貨混在を1つの比率で扱う)のみUSD/JPYレートで換算する。
+  // 8章のFX管理画面(F6)実装前でも、repositoryに登録済みのレートがあれば利用できるようasOf最新のものを使う
+  const latestUsdJpyRate = fxRates
+    .filter((r) => r.currencyPair === 'USD/JPY')
+    .sort((a, b) => b.asOf.localeCompare(a.asOf))[0]?.rate;
+  const rebalancePlan = buildRebalancePlan({
+    allocations: targetAllocations,
+    positions,
+    currentPriceBySecurityId,
+    securities,
+    sectors,
+    cashBalances,
+    usdJpyRate: latestUsdJpyRate ?? null,
+    noSellMode,
+  });
 
   return (
     <div className="space-y-8">
@@ -237,6 +274,14 @@ export function PortfolioClient() {
 
       <SectorAllocationSection title="セクター別配分(JPY)" allocation={jpyAllocation} currency="JPY" />
       <SectorAllocationSection title="セクター別配分(USD)" allocation={usdAllocation} currency="USD" />
+
+      <TargetAllocationSection sectors={sectors} allocations={targetAllocations} onChanged={refresh} />
+      <RebalanceSection
+        plan={rebalancePlan}
+        hasAllocations={targetAllocations.length > 0}
+        noSellMode={noSellMode}
+        onToggleNoSellMode={setNoSellMode}
+      />
     </div>
   );
 }
